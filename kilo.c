@@ -26,7 +26,8 @@ enum editorKey {
   BACKSPACE,
   DEL_KEY,
   PREV_KEY,
-  NEWLINE_KEY
+  NEWLINE_KEY,
+  ADD_CHAR_KEY
 };
 
 /*** data ***/
@@ -108,6 +109,43 @@ void editorInsertChar(int c){
     row->chars[row->size] = '\0';
     E.cx = insertPos + 1;
 }
+
+void editorDeleteChar(void) {
+    if (E.numrows == 0) return;
+
+    // if we're at the beginning of the file
+    if (E.cy == 0 && E.cx == 0) return;
+
+    erow *row = &E.row[E.cy];
+
+    // case 1: delete character within line
+    if (E.cx > 0) {
+        memmove(&row->chars[E.cx - 1], &row->chars[E.cx], row->size - E.cx + 1);
+        row = &E.row[E.cy];
+        row->size--;
+        E.cx--;
+        return;
+    }
+
+    // case 2: at beginning of line -> merge with previous
+    if (E.cx == 0) {
+        int prev_size = E.row[E.cy - 1].size;
+        E.row[E.cy - 1].chars = realloc(E.row[E.cy - 1].chars, prev_size + row->size + 1);
+        memcpy(&E.row[E.cy - 1].chars[prev_size], row->chars, row->size + 1);
+        E.row[E.cy - 1].size = prev_size + row->size;
+
+        // free current row
+        free(row->chars);
+
+        // shift rows up
+        memmove(&E.row[E.cy], &E.row[E.cy + 1], sizeof(erow) * (E.numrows - E.cy - 1));
+        E.numrows--;
+
+        E.cy--;
+        E.cx = prev_size;  // move cursor to end of previous line
+    }
+}
+
 
 void editorInsertNewline(void) {
     if (E.numrows == 0) {
@@ -250,8 +288,11 @@ int editorReadKey(){
     } else {
         if (isprint(c)) {
             editorInsertChar(c);
+            return ADD_CHAR_KEY;
         } else if (c == '\r') {
             return NEWLINE_KEY;
+        } else if (c == 127 || c == '\b') { // Backspace (mac = 127)
+            return BACKSPACE;
         }
         return c;
     }
@@ -415,6 +456,11 @@ void editorProcessKey(){
         case NEWLINE_KEY:
             editorInsertNewline();
             break;
+        case BACKSPACE:
+            editorDeleteChar();
+            break;
+        case ADD_CHAR_KEY:
+            break;
     }
 
     }
@@ -456,7 +502,25 @@ void editorDrawRows(struct abuf *ab) {
   }
 }
 
+void editorScroll() {
+    if (E.cy < E.rowoff) {
+        E.rowoff = E.cy;
+    }
+    if (E.cy >= E.rowoff + E.screenrows) {
+        E.rowoff = E.cy - E.screenrows + 1;
+    }
+
+    if (E.cx < E.coloff) {
+        E.coloff = E.cx;
+    }
+    if (E.cx >= E.coloff + E.screencols) {
+        E.coloff = E.cx - E.screencols + 1;
+    }
+}
+
+
 void editorRefreshScreen() {
+    editorScroll();
     struct abuf ab = ABUF_INIT;
 
     abAppend(&ab, "\x1b[?25l", 6);
@@ -508,6 +572,7 @@ int main(int argc, char *argv[]) {
   if (argc >= 2) {
     editorOpen(argv[1]);
   } else {
+    // HARDCODED FILENAME
     E.filename = "temp.txt";
   }
 
