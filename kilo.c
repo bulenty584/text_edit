@@ -25,7 +25,8 @@ enum editorKey {
   END_KEY,
   BACKSPACE,
   DEL_KEY,
-  PREV_KEY
+  PREV_KEY,
+  NEWLINE_KEY
 };
 
 /*** data ***/
@@ -41,7 +42,9 @@ struct editorConfig {
     struct termios orig_termios;
     int cx, cy;
     int numrows;
-    erow row;
+    erow *row;
+    int rowoff;
+    int coloff;
 };
 struct editorConfig E;
 
@@ -72,6 +75,127 @@ void enableRawMode(){
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
+
+void editorInsertChar(int c){
+    if (E.numrows == 0) {
+        // Create first row if none exists
+        E.row = malloc(sizeof(erow));
+        E.row[0].size = 0;
+        E.row[0].chars = malloc(1);
+        E.row[0].chars[0] = '\0';
+        E.numrows = 1;
+        E.cy = 0;
+        E.cx = 0;
+    }
+    
+    // Ensure cursor is within bounds
+    if (E.cy >= E.numrows) E.cy = E.numrows - 1;
+    if (E.cy < 0) E.cy = 0;
+    
+    int insertPos = E.cx;
+    erow *row = &E.row[E.cy];
+    
+    // Ensure cursor position is within row bounds
+    if (insertPos > row->size) insertPos = row->size;
+    if (insertPos < 0) insertPos = 0;
+    
+    int oldSize = row->size;
+    row->chars = realloc(row->chars, oldSize + 2);
+    memmove(&row->chars[insertPos + 1], &row->chars[insertPos], oldSize - insertPos + 1);
+    row->chars[insertPos] = (char)c;
+    row->size = oldSize + 1;
+    row->chars[row->size] = '\0';
+    E.cx = insertPos + 1;
+}
+
+void editorInsertNewline(void) {
+    if (E.numrows == 0) {
+        // Create first row if none exists
+        E.row = malloc(sizeof(erow));
+        E.row[0].size = 0;
+        E.row[0].chars = malloc(1);
+        E.row[0].chars[0] = '\0';
+        E.numrows = 1;
+        E.cy = 0;
+        E.cx = 0;
+        return;
+    }
+    
+    if (E.cy < 0 || E.cy >= E.numrows) return;
+
+    erow *row = &E.row[E.cy];
+    int split = E.cx;
+    
+    // Ensure split position is within bounds
+    if (split > row->size) split = row->size;
+    if (split < 0) split = 0;
+
+    // Allocate space for new line
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+
+    // Shift existing rows below current line down by one
+    memmove(&E.row[E.cy + 1], &E.row[E.cy],
+            sizeof(erow) * (E.numrows - E.cy));
+
+    // Create the new line below current one
+    E.row[E.cy + 1].size = row->size - split;
+    E.row[E.cy + 1].chars = malloc(E.row[E.cy + 1].size + 1);
+    memcpy(E.row[E.cy + 1].chars, &row->chars[split], E.row[E.cy + 1].size);
+    E.row[E.cy + 1].chars[E.row[E.cy + 1].size] = '\0';
+
+    // Truncate the current line at cursor position
+    row->size = split;
+    row->chars = realloc(row->chars, split + 1);
+    row->chars[split] = '\0';
+
+    E.numrows++;
+    E.cy++;
+    E.cx = 0;
+}
+
+
+void editorMoveCursor(int key) {
+    switch (key) {
+      case ARROW_LEFT:
+          if (E.cx != 0) {
+              E.cx--;
+          } else if (E.coloff > 0) {
+              E.coloff--;
+          }
+          break;
+      case ARROW_RIGHT:
+          if (E.numrows > 0 && E.cy < E.numrows && E.cx < E.row[E.cy].size) {
+              E.cx++;
+          }
+          break;
+      case ARROW_UP:
+        if (E.cy != 0) {
+            E.cy--;
+        } else if (E.rowoff > 0) {
+            E.rowoff--;
+        }
+        break;
+      case ARROW_DOWN:
+        if (E.cy < E.numrows - 1) {
+            E.cy++;
+        }
+        break;
+    }
+    
+    // Keep cursor in view
+    if (E.cy < E.rowoff) {
+        E.rowoff = E.cy;
+    }
+    if (E.cy >= E.rowoff + E.screenrows) {
+        E.rowoff = E.cy - E.screenrows + 1;
+    }
+    if (E.cx < E.coloff) {
+        E.coloff = E.cx;
+    }
+    if (E.cx >= E.coloff + E.screencols) {
+        E.coloff = E.cx - E.screencols + 1;
+    }
+  }
 
 int editorReadKey(){
     int nread;
@@ -118,6 +242,11 @@ int editorReadKey(){
 
         return '\x1b';
     } else {
+        if (isprint(c)) {
+            editorInsertChar(c);
+        } else if (c == '\r') {
+            return NEWLINE_KEY;
+        }
         return c;
     }
 
@@ -146,7 +275,7 @@ int getCursorPosition(int *rows, int *cols) {
 
 int getWindowSize(int *rows, int *cols) {
   struct winsize ws;
-  if (1 || ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
     if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
     return getCursorPosition(rows, cols);
   } else {
@@ -158,25 +287,56 @@ int getWindowSize(int *rows, int *cols) {
 
 /*** file i/o  ***/
 
+void editorSave() {
+  if (E.numrows == 0) return;
+  
+  FILE *fp = fopen("test.txt", "w");
+  if (!fp) die("fopen");
+  
+  for (int i = 0; i < E.numrows; i++) {
+    fwrite(E.row[i].chars, E.row[i].size, 1, fp);
+    if (i < E.numrows - 1) {
+      fwrite("\n", 1, 1, fp);
+    }
+  }
+  
+  fclose(fp);
+}
+
 void editorOpen(char *filename) {
   FILE *fp = fopen(filename, "r");
   if (!fp) die("fopen");
+
+  E.numrows = 0;
+  E.row = NULL;
   char *line = NULL;
   size_t linecap = 0;
   ssize_t linelen;
-  linelen = getline(&line, &linecap, fp);
-  if (linelen != -1) {
+  
+  while ((linelen = getline(&line, &linecap, fp)) != -1) {
     while (linelen > 0 && (line[linelen - 1] == '\n' ||
                            line[linelen - 1] == '\r'))
-      linelen--;
-    E.row.size = linelen;
-    E.row.chars = malloc(linelen + 1);
-    memcpy(E.row.chars, line, linelen);
-    E.row.chars[linelen] = '\0';
-    E.numrows = 1;
-  }
+        linelen--;
+
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+
+    E.row[E.numrows].size = linelen;
+    E.row[E.numrows].chars = malloc(linelen + 1);
+    memcpy(E.row[E.numrows].chars, line, linelen);
+    E.row[E.numrows].chars[linelen] = '\0';
+    E.numrows++;
+}
   free(line);
   fclose(fp);
+  
+  // If no lines were read, create an empty first line
+  if (E.numrows == 0) {
+    E.numrows = 1;
+    E.row = malloc(sizeof(erow));
+    E.row[0].size = 0;
+    E.row[0].chars = malloc(1);
+    E.row[0].chars[0] = '\0';
+  }
 }
 
 /*** append buffer ***/
@@ -202,28 +362,15 @@ void abFree(struct abuf *ab){
 
 /*** input ***/
 
-void editorMoveCursor(int key) {
-  switch (key) {
-    case ARROW_LEFT:
-        if (E.cx != 0) E.cx--;
-      break;
-    case ARROW_RIGHT:
-        if (E.cx != E.screencols - 1) E.cx++;
-        break;
-    case ARROW_UP:
-      if (E.cy!= 0) E.cy--;
-      break;
-    case ARROW_DOWN:
-      if (E.cy!= E.screenrows - 1) E.cy++;
-      break;
-  }
-}
-
 void editorProcessKey(){
     int c = editorReadKey();
 
     switch (c) {
+        case CTRL_KEY('s'):
+            editorSave();
+            break;
         case CTRL_KEY('q'):
+            editorSave();
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
@@ -250,6 +397,9 @@ void editorProcessKey(){
         case ARROW_RIGHT:
             editorMoveCursor(c);
             break;
+        case NEWLINE_KEY:
+            editorInsertNewline();
+            break;
     }
 
     }
@@ -259,7 +409,8 @@ void editorProcessKey(){
 void editorDrawRows(struct abuf *ab) {
   int y;
   for (y = 0; y < E.screenrows; y++) {
-    if (y >= E.numrows){
+    int filerow = y + E.rowoff;
+    if (filerow >= E.numrows){
         if (y == E.screenrows / 3) {
             char welcome[80];
             int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo editor -- version %s", KILO_VERSION);
@@ -275,9 +426,12 @@ void editorDrawRows(struct abuf *ab) {
             abAppend(ab, "~", 1);
         }
     } else {
-        int len = E.row.size;
+        int len = E.row[filerow].size - E.coloff;
+        if (len < 0) len = 0;
         if (len > E.screencols) len = E.screencols;
-        abAppend(ab, E.row.chars, len);
+        for (int i = 0; i < len; i++) {
+            abAppend(ab, &E.row[filerow].chars[E.coloff + i], 1);
+        }
     }
 
     abAppend(ab, "\x1b[K", 3);
@@ -295,11 +449,19 @@ void editorRefreshScreen() {
 
     editorDrawRows(&ab);
 
+    // Ensure cursor is within bounds before positioning
+    if (E.cy >= E.numrows) E.cy = E.numrows - 1;
+    if (E.cy < 0) E.cy = 0;
+    if (E.numrows > 0 && E.cy < E.numrows) {
+        if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
+    }
+    if (E.cx < 0) E.cx = 0;
+
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy + 1, E.cx + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
     abAppend(&ab, buf, strlen(buf));
 
-    abAppend(&ab, "\x1b[H", 3);
+
     abAppend(&ab, "\x1b[?25h", 6);
 
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -311,7 +473,13 @@ void editorRefreshScreen() {
 void initEditor() {
     E.cx = 0;
     E.cy = 0;
-    E.numrows = 0;
+    E.rowoff = 0;
+    E.coloff = 0;
+    E.numrows = 1;
+    E.row = malloc(sizeof(erow));
+    E.row[0].size = 0;
+    E.row[0].chars = malloc(1);
+    E.row[0].chars[0] = '\0';
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 
 }
