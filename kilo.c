@@ -45,6 +45,7 @@ struct editorConfig {
     erow *row;
     int rowoff;
     int coloff;
+    char *filename;
 };
 struct editorConfig E;
 
@@ -121,7 +122,9 @@ void editorInsertNewline(void) {
         return;
     }
     
-    if (E.cy < 0 || E.cy >= E.numrows) return;
+    // Ensure cursor is within bounds
+    if (E.cy < 0) E.cy = 0;
+    if (E.cy >= E.numrows) E.cy = E.numrows - 1;
 
     erow *row = &E.row[E.cy];
     int split = E.cx;
@@ -136,6 +139,9 @@ void editorInsertNewline(void) {
     // Shift existing rows below current line down by one
     memmove(&E.row[E.cy + 1], &E.row[E.cy],
             sizeof(erow) * (E.numrows - E.cy));
+
+    // reaquire new row pointer
+    row = &E.row[E.cy];
 
     // Create the new line below current one
     E.row[E.cy + 1].size = row->size - split;
@@ -287,10 +293,17 @@ int getWindowSize(int *rows, int *cols) {
 
 /*** file i/o  ***/
 
+void editorFree() {
+    for (int i = 0; i < E.numrows; i++) {
+        free(E.row[i].chars);
+    }
+    free(E.row);
+}
+
 void editorSave() {
   if (E.numrows == 0) return;
   
-  FILE *fp = fopen("test.txt", "w");
+  FILE *fp = fopen(E.filename, "w");
   if (!fp) die("fopen");
   
   for (int i = 0; i < E.numrows; i++) {
@@ -304,6 +317,7 @@ void editorSave() {
 }
 
 void editorOpen(char *filename) {
+  E.filename = filename;
   FILE *fp = fopen(filename, "r");
   if (!fp) die("fopen");
 
@@ -325,7 +339,7 @@ void editorOpen(char *filename) {
     memcpy(E.row[E.numrows].chars, line, linelen);
     E.row[E.numrows].chars[linelen] = '\0';
     E.numrows++;
-}
+  }
   free(line);
   fclose(fp);
   
@@ -371,6 +385,7 @@ void editorProcessKey(){
             break;
         case CTRL_KEY('q'):
             editorSave();
+            editorFree();
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
@@ -450,12 +465,15 @@ void editorRefreshScreen() {
     editorDrawRows(&ab);
 
     // Ensure cursor is within bounds before positioning
-    if (E.cy >= E.numrows) E.cy = E.numrows - 1;
-    if (E.cy < 0) E.cy = 0;
-    if (E.numrows > 0 && E.cy < E.numrows) {
+    if (E.numrows == 0) {
+        E.cy = 0;
+        E.cx = 0;
+    } else {
+        if (E.cy >= E.numrows) E.cy = E.numrows - 1;
+        if (E.cy < 0) E.cy = 0;
         if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
+        if (E.cx < 0) E.cx = 0;
     }
-    if (E.cx < 0) E.cx = 0;
 
     char buf[32];
     snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
@@ -489,6 +507,8 @@ int main(int argc, char *argv[]) {
   initEditor();
   if (argc >= 2) {
     editorOpen(argv[1]);
+  } else {
+    E.filename = "temp.txt";
   }
 
   while (1) {
