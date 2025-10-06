@@ -47,8 +47,21 @@ struct editorConfig {
     int rowoff;
     int coloff;
     char *filename;
+    int dirty;
 };
 struct editorConfig E;
+
+/*** Generic functions ***/
+void editorAllocateNewRow(void){
+    E.row = malloc(sizeof(erow));
+    E.row[0].size = 0;
+    E.row[0].chars = malloc(1);
+    E.row[0].chars[0] = '\0';
+    E.numrows = 1;
+    E.cy = 0;
+    E.cx = 0;
+    return;
+}
 
 /*** terminal ***/
 
@@ -59,12 +72,12 @@ void die(const char *s){
     exit(1);
 }
 
-void disableRawMode(){
+void disableRawMode(void){
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1){
         die("tcsetattr");
     }
 }
-void enableRawMode(){
+void enableRawMode(void){
     if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetattr");
     atexit(disableRawMode);
     struct termios raw = E.orig_termios;
@@ -81,13 +94,7 @@ void enableRawMode(){
 void editorInsertChar(int c){
     if (E.numrows == 0) {
         // Create first row if none exists
-        E.row = malloc(sizeof(erow));
-        E.row[0].size = 0;
-        E.row[0].chars = malloc(1);
-        E.row[0].chars[0] = '\0';
-        E.numrows = 1;
-        E.cy = 0;
-        E.cx = 0;
+        editorAllocateNewRow();
     }
     
     // Ensure cursor is within bounds
@@ -104,10 +111,12 @@ void editorInsertChar(int c){
     int oldSize = row->size;
     row->chars = realloc(row->chars, oldSize + 2);
     memmove(&row->chars[insertPos + 1], &row->chars[insertPos], oldSize - insertPos + 1);
+    row = &E.row[E.cy];
     row->chars[insertPos] = (char)c;
     row->size = oldSize + 1;
     row->chars[row->size] = '\0';
     E.cx = insertPos + 1;
+    E.dirty = 1;
 }
 
 void editorDeleteChar(void) {
@@ -124,6 +133,7 @@ void editorDeleteChar(void) {
         row = &E.row[E.cy];
         row->size--;
         E.cx--;
+        E.dirty = 1;
         return;
     }
 
@@ -133,6 +143,7 @@ void editorDeleteChar(void) {
         E.row[E.cy - 1].chars = realloc(E.row[E.cy - 1].chars, prev_size + row->size + 1);
         memcpy(&E.row[E.cy - 1].chars[prev_size], row->chars, row->size + 1);
         E.row[E.cy - 1].size = prev_size + row->size;
+        E.dirty = 1;
 
         // free current row
         free(row->chars);
@@ -150,13 +161,7 @@ void editorDeleteChar(void) {
 void editorInsertNewline(void) {
     if (E.numrows == 0) {
         // Create first row if none exists
-        E.row = malloc(sizeof(erow));
-        E.row[0].size = 0;
-        E.row[0].chars = malloc(1);
-        E.row[0].chars[0] = '\0';
-        E.numrows = 1;
-        E.cy = 0;
-        E.cx = 0;
+        editorAllocateNewRow();
         return;
     }
     
@@ -195,13 +200,14 @@ void editorInsertNewline(void) {
     E.numrows++;
     E.cy++;
     E.cx = 0;
+    E.dirty = 1;
 }
 
 
 void editorMoveCursor(int key) {
     switch (key) {
       case ARROW_LEFT:
-          if (E.cx != 0) {
+          if (E.cx >= 0) {
               E.cx--;
           } else if (E.coloff > 0) {
               E.coloff--;
@@ -241,7 +247,7 @@ void editorMoveCursor(int key) {
     }
   }
 
-int editorReadKey(){
+int editorReadKey(void){
     int nread;
     char c;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
@@ -305,7 +311,6 @@ int getCursorPosition(int *rows, int *cols) {
 
     if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
     printf("\r\n");
-    char c;
 
     while (i < sizeof(buf) - 1) {
         if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
@@ -334,14 +339,14 @@ int getWindowSize(int *rows, int *cols) {
 
 /*** file i/o  ***/
 
-void editorFree() {
+void editorFree(void) {
     for (int i = 0; i < E.numrows; i++) {
         free(E.row[i].chars);
     }
     free(E.row);
 }
 
-void editorSave() {
+void editorSave(void) {
   if (E.numrows == 0) return;
   
   FILE *fp = fopen(E.filename, "w");
@@ -353,6 +358,7 @@ void editorSave() {
       fwrite("\n", 1, 1, fp);
     }
   }
+  E.dirty = 0;
   
   fclose(fp);
 }
@@ -381,16 +387,13 @@ void editorOpen(char *filename) {
     E.row[E.numrows].chars[linelen] = '\0';
     E.numrows++;
   }
+  E.dirty = 0;
   free(line);
   fclose(fp);
   
   // If no lines were read, create an empty first line
   if (E.numrows == 0) {
-    E.numrows = 1;
-    E.row = malloc(sizeof(erow));
-    E.row[0].size = 0;
-    E.row[0].chars = malloc(1);
-    E.row[0].chars[0] = '\0';
+    editorAllocateNewRow();
   }
 }
 
@@ -417,7 +420,7 @@ void abFree(struct abuf *ab){
 
 /*** input ***/
 
-void editorProcessKey(){
+void editorProcessKey(void){
     int c = editorReadKey();
 
     switch (c) {
@@ -425,6 +428,7 @@ void editorProcessKey(){
             editorSave();
             break;
         case CTRL_KEY('q'):
+        case CTRL_KEY('c'):
             editorSave();
             editorFree();
             write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -502,7 +506,7 @@ void editorDrawRows(struct abuf *ab) {
   }
 }
 
-void editorScroll() {
+void editorScroll(void) {
     if (E.cy < E.rowoff) {
         E.rowoff = E.cy;
     }
@@ -519,7 +523,23 @@ void editorScroll() {
 }
 
 
-void editorRefreshScreen() {
+void editorDrawStatusBar(struct abuf *ab) {
+    abAppend(ab, "\x1b[7m", 4); // invert colors
+    char status[80];
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+                       E.filename, E.numrows, E.dirty ? "(modified)" : "");
+    if (len > E.screencols) len = E.screencols;
+    abAppend(ab, status, len);
+    while (len < E.screencols) {
+        abAppend(ab, " ", 1);
+        len++;
+    }
+    abAppend(ab, "\x1b[m", 3); // reset
+}
+
+
+
+void editorRefreshScreen(void) {
     editorScroll();
     struct abuf ab = ABUF_INIT;
 
@@ -527,6 +547,7 @@ void editorRefreshScreen() {
     abAppend(&ab, "\x1b[H", 3);
 
     editorDrawRows(&ab);
+    editorDrawStatusBar(&ab);
 
     // Ensure cursor is within bounds before positioning
     if (E.numrows == 0) {
@@ -552,7 +573,7 @@ void editorRefreshScreen() {
 
 /*** init ***/
 
-void initEditor() {
+void initEditor(void) {
     E.cx = 0;
     E.cy = 0;
     E.rowoff = 0;
@@ -562,7 +583,9 @@ void initEditor() {
     E.row[0].size = 0;
     E.row[0].chars = malloc(1);
     E.row[0].chars[0] = '\0';
+    E.dirty = 0;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
+  E.screenrows -= 1;
 
 }
 
