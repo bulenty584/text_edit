@@ -16,7 +16,7 @@ void trieLoadDictionary(TrieNode* root, const char* filename){
     char word[256];
 
     while (fgets(word, sizeof(word), fp)){
-        word[strcspn(word, "\r\n")] = 0;
+        word[strcspn(word, "\r\n")] = '\0';
 
         if (strlen(word) == 0) continue;
 
@@ -81,17 +81,19 @@ bool trieSearch(TrieNode* root, const char* word){
     return curr && curr->isWord;
 }
 
-static void dfsSuggestions(TrieNode* node, char* buffer, int depth){
-    if (!node) return;
+static void dfsSuggestions(TrieNode* node, char* buffer, int depth, int* count, int limit){
+    if (!node || *count >= limit) return;
     if (node->isWord){
         buffer[depth] = '\0';
         printf("%s\n", buffer);
+
+        (*count)++;
     }
 
     for (int i = 0; i < ALPHABET_SIZE; i++){
         if (node->children[i]){
             buffer[depth] = 'a' + i;
-            dfsSuggestions(node->children[i], buffer, depth + 1);
+            dfsSuggestions(node->children[i], buffer, depth + 1, count, limit);
         }
     }
 }
@@ -111,7 +113,8 @@ void trieAutoComplete(TrieNode* root, const char* prefix){
 
     char buffer[256];
     strcpy(buffer, prefix);
-    dfsSuggestions(curr, buffer, strlen(buffer));
+    int count = 0;
+    dfsSuggestions(curr, buffer, strlen(buffer), &count, 25);
 
 }
 
@@ -133,7 +136,7 @@ int main() {
     trieInsertWord(dictionary, "helium");
 
     printf("Autocomplete for 'he':\n");
-    trieAutoComplete(dictionary, "heroin");
+    trieAutoComplete(dictionary, "he");
 
     trieFree(dictionary);
     return 0;
