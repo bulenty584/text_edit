@@ -217,6 +217,7 @@ void editorProcessKey(void){
             editorMoveCursor(c);
             break;
         case NEWLINE_KEY:
+            if (autocompleteIsActive()) {autocompleteAcceptSuggestion(); autocompleteHideSuggestions(); break;}
             editorInsertNewline();
             break;
         case BACKSPACE:
@@ -239,10 +240,6 @@ void editorProcessKey(void){
                     autocompleteShowSuggestions();
                 }
             }
-            break;
-        case ENTER:
-            if (autocompleteIsActive()) { autocompleteAcceptSuggestion(); break;}
-            editorInsertNewline();
             break;
         default:
             editorInsertChar(c);

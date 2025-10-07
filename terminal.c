@@ -82,8 +82,6 @@ int editorReadKey(void){
             return BACKSPACE;
         } else if (c == '\t') {
             return TAB_KEY;
-        } else if (c == '\r'){
-            return ENTER;
         }
         return c;
     }
