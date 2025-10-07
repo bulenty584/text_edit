@@ -1,6 +1,7 @@
 #include "editor.h"
 #include "terminal.h"
 #include "fileio.h"
+#include "autocomplete.h"
 
 /*** editor functions ***/
 
@@ -204,8 +205,14 @@ void editorProcessKey(void){
             break;
 
         case ARROW_UP:
+            if (autocompleteIsActive()){
+                autocompleteSelectPrev(); break;
+            }
         case ARROW_DOWN:
         case ARROW_LEFT:
+            if (autocompleteIsActive()){
+                autocompleteSelectNext(); break;
+            }
         case ARROW_RIGHT:
             editorMoveCursor(c);
             break;
@@ -215,8 +222,45 @@ void editorProcessKey(void){
         case BACKSPACE:
             editorDeleteChar();
             break;
+        case TAB_KEY:
+            if (autocompleteIsActive()){
+                autocompleteAcceptSuggestion();
+            } else {
+                erow* row = &E.row[E.cy];
+                int start = E.cx;
+                while (start > 0 && isalnum((unsigned char) row->chars[start - 1])) start--;
+
+                int wordLen = E.cx - start;
+                char word[MAX_WORD_LENGTH];
+                if (wordLen > 0 && wordLen < MAX_WORD_LENGTH){
+                    memcpy(word, &row->chars[start], wordLen);
+                    word[wordLen] = '\0';
+                    autocompleteUpdateSuggestions(word, E.cy, E.cx);
+                    autocompleteShowSuggestions();
+                }
+            }
+            break;
+        case ENTER:
+            if (autocompleteIsActive()) { autocompleteAcceptSuggestion(); break;}
+            editorInsertNewline();
+            break;
         default:
             editorInsertChar(c);
+
+
+            // after inserting, recompute current word and update suggestions
+            erow* row = &E.row[E.cy];
+            int start = E.cx;
+            while (start > 0 && isalnum((unsigned char) row->chars[start - 1])) start--;
+
+            int wordLen = E.cx - start;
+            char word[MAX_WORD_LENGTH];
+            if (wordLen >= 2 && wordLen < MAX_WORD_LENGTH){
+                memcpy(word, &row->chars[start], wordLen);
+                word[wordLen] = '\0';
+                autocompleteUpdateSuggestions(word, E.cy, E.cx);
+                autocompleteShowSuggestions();
+            }
             break;
     }
 }
@@ -295,6 +339,7 @@ void editorRefreshScreen(void) {
 
     editorDrawRows(&ab);
     editorDrawStatusBar(&ab);
+    autocompleteDrawSuggestions(&ab);
 
     // Ensure cursor is within bounds before positioning
     if (E.numrows == 0) {
@@ -330,4 +375,5 @@ void initEditor(void) {
     E.dirty = 0;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
   E.screenrows -= 1;
+  autocompleteInit();
 }

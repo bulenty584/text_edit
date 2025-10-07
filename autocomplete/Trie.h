@@ -12,14 +12,16 @@ typedef struct TrieNode {
 
 TrieNode* trieCreateNode(void);
 
+void trieLoadDictionary(TrieNode* root, const char* filename);
+
 void trieInsertWord(TrieNode* root, const char* word);
 
 bool trieSearch(TrieNode* root, const char* word);
 
-void trieAutoComplete(TrieNode* root, const char* prefix);
-
 int trieGetSuggestions(TrieNode* root, const char* prefix, char suggestions[][256], int max_count);
 
 void trieFree(TrieNode* root);
+
+TrieNode* dictionary;
 
 #endif

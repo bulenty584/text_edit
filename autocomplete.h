@@ -2,19 +2,9 @@
 #define AUTOCOMPLETE_H
 
 #include "common.h"
-
-#define MAX_SUGGESTIONS 10
-#define MAX_WORD_LENGTH 256
-
-typedef struct {
-    char suggestions[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
-    int count;
-    int selected;
-    int start_row;
-    int start_col;
-    char current_word[MAX_WORD_LENGTH];
-    bool is_active;
-} AutocompleteState;
+#include "autocomplete/Trie.h"
+#include "common.h"
+#include "buffer.h"
 
 // Autocomplete functions
 void autocompleteInit(void);

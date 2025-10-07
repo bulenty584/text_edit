@@ -5,8 +5,6 @@
 
 #include "Trie.h"
 
-TrieNode* dictionary;
-
 void trieLoadDictionary(TrieNode* root, const char* filename){
     FILE *fp = fopen(filename, "r");
 

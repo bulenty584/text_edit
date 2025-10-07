@@ -80,6 +80,10 @@ int editorReadKey(void){
             return NEWLINE_KEY;
         } else if (c == 127 || c == '\b') { // Backspace (mac = 127)
             return BACKSPACE;
+        } else if (c == '\t') {
+            return TAB_KEY;
+        } else if (c == '\r'){
+            return ENTER;
         }
         return c;
     }
