@@ -5,6 +5,8 @@
 
 #include "Trie.h"
 
+TrieNode* dictionary;
+
 void trieLoadDictionary(TrieNode* root, const char* filename){
     FILE *fp = fopen(filename, "r");
 
@@ -81,31 +83,31 @@ bool trieSearch(TrieNode* root, const char* word){
     return curr && curr->isWord;
 }
 
-static void dfsSuggestions(TrieNode* node, char* buffer, int depth, int* count, int limit){
+static void dfsSuggestions(TrieNode* node, char* buffer, int depth, int* count, int limit, char suggestions[][256]){
     if (!node || *count >= limit) return;
     if (node->isWord){
         buffer[depth] = '\0';
-        printf("%s\n", buffer);
-
+        strcpy(suggestions[*count], buffer);
         (*count)++;
     }
 
     for (int i = 0; i < ALPHABET_SIZE; i++){
         if (node->children[i]){
             buffer[depth] = 'a' + i;
-            dfsSuggestions(node->children[i], buffer, depth + 1, count, limit);
+            dfsSuggestions(node->children[i], buffer, depth + 1, count, limit, suggestions);
         }
     }
 }
 
-void trieAutoComplete(TrieNode* root, const char* prefix){
+int trieGetSuggestions(TrieNode* root, const char* prefix, char suggestions[][256], int max_count){
     TrieNode* curr = root;
     const char* p = prefix;
 
     while (*p){
         int index = *p - 'a';
-
-        if (!curr->children[index]) return;
+        if (index < 0 || index >= ALPHABET_SIZE || !curr->children[index]){
+            return 0;
+        }
 
         curr = curr->children[index];
         p++;
@@ -114,8 +116,8 @@ void trieAutoComplete(TrieNode* root, const char* prefix){
     char buffer[256];
     strcpy(buffer, prefix);
     int count = 0;
-    dfsSuggestions(curr, buffer, strlen(buffer), &count, 25);
-
+    dfsSuggestions(curr, buffer, strlen(buffer), &count, max_count, suggestions);
+    return count;
 }
 
 void trieFree(TrieNode* root){
@@ -124,21 +126,5 @@ void trieFree(TrieNode* root){
     }
 
     free(root);
-}
-
-TrieNode *dictionary;
-
-int main() {
-    dictionary = trieCreateNode();
-    trieLoadDictionary(dictionary, "words.txt");
-    trieInsertWord(dictionary, "hello");
-    trieInsertWord(dictionary, "help");
-    trieInsertWord(dictionary, "helium");
-
-    printf("Autocomplete for 'he':\n");
-    trieAutoComplete(dictionary, "he");
-
-    trieFree(dictionary);
-    return 0;
 }
 
