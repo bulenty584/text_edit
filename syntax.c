@@ -123,3 +123,116 @@ int syntaxInit(const char *lang_name, const char *query_path){
 
 }
 
+int syntaxReparseFull(void){
+    if (!g_parser) return -1;
+
+    rebuild_full_text();
+    TSTree *new_tree = ts_parser_parse_string(g_parser, g_tree, g_full_text, (uint32_t) g_full_len);
+
+    if (!new_tree) return -2;
+
+    ts_tree_delete(g_tree);
+    g_tree = new_tree;
+    return 0;
+}
+
+// simple mappings of names to color ids
+int syntaxColorCode(const char *name){
+    if (strcmp(name, "comment") == 0) return 90; // gray
+    if (strcmp(name, "string") == 0) return 32; // green
+    if (strcmp(name, "number") == 0) return 31; // red
+    if (strcmp(name, "type") == 0) return 36; // cyan
+    if (strcmp(name, "keyword") == 0) return 33;  // yellow
+    if (strcmp(name, "function") == 0)return 34;  // blue
+    if (strcmp(name, "constant") == 0)return 35;  // magenta
+    return 39; //default
+
+}
+
+int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, int max_spans){
+    if (!g_tree || !g_query || !g_cursor || !spans_out || max_spans <= 0) return -1;
+
+    if (first_row < 0) first_row = 0;
+    if (last_row >= E.numrows) last_row = E.numrows - 1;
+    if (last_row < first_row) return 0;
+
+    size_t start_byte = row_col_to_byte(first_row, 0);
+    size_t end_byte = row_col_to_byte(last_row, E.row[last_row].size);
+
+    ts_query_cursor_set_byte_range(g_cursor, (uint32_t) start_byte, (uint32_t) end_byte);
+    ts_query_cursor_exec(g_cursor, g_query, ts_tree_root_node(g_tree));
+
+    int count = 0;
+    TSQueryMatch match;
+
+    while (ts_query_cursor_next_match(g_cursor, &match)){
+        for (uint32_t i = 0; i < match.capture_count; i++){
+            TSQueryCapture cap = match.captures[i];
+            const char *cap_name = ts_query_capture_name_for_id(g_query, cap.index, NULL);
+            int color = syntaxColorForCapture(cap_name);
+
+            TSNode node = cap.node;
+
+            uint32_t sbyte = ts_node_start_byte(node);
+            uint32_t ebyte = ts_node_end_byte(node);
+
+            int srow = first_row;
+            int erow = last_row;
+
+            // derive srow
+            {
+                int lo = first_row, hi = last_row;
+                while (lo <= hi){
+                    int mid = (lo + hi) / 2;
+                    size_t base = g_row_byte_offsets[mid];
+                    if (base <= sbyte){ srow = mid; lo = mid + 1; } else { hi = mid - 1; }
+                }
+            }
+
+            // derive erow
+            {
+                int lo = srow, hi = last_row;
+                while (lo <= hi){
+                    int mid = (lo + hi) / 2;
+                    size_t base = g_row_byte_offsets[mid];
+                    if (base <= ebyte) { erow = mid; lo = mid + 1; } else { hi = mid - 1; }
+                }
+            }
+
+            //emit spans per affected row
+            for (int row = srow; row <= erow && count < max_spans; row++){
+                size_t row_base = g_row_byte_offsets[row];
+                size_t row_end = row_base + (size_t) E.row[row].size;
+
+                size_t seg_start = sbyte > row_base ? sbyte : row_base;
+                size_t seg_end = ebyte < row_end ? ebyte : row_end;
+
+                if (seg_end > seg_start){
+                    HighlightSpan hs;
+                    hs.row = row;
+                    hs.start_col = (int) (seg_start - row_base);
+                    hs.end_col = (int) (seg_end - row_base);
+                    hs.color_id = color;
+                    spans_out[count++] = hs;
+                    if (count >= max_spans) break;
+                }
+            }
+
+            if (count >= max_spans) break;
+
+        }
+        if (count >= max_spans) break;
+    }
+
+    return count;
+}
+
+void syntaxFree(void) {
+    if (g_cursor) ts_query_cursor_delete(g_cursor), g_cursor = NULL;
+    if (g_query)  ts_query_delete(g_query), g_query = NULL;
+    if (g_tree)   ts_tree_delete(g_tree), g_tree = NULL;
+    if (g_parser) ts_parser_delete(g_parser), g_parser = NULL;
+    free(g_full_text); g_full_text = NULL; g_full_len = 0;
+    free(g_row_byte_offsets); g_row_byte_offsets = NULL; g_row_offsets_count = 0;
+}
+
