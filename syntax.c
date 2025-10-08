@@ -137,7 +137,7 @@ int syntaxReparseFull(void){
 }
 
 // simple mappings of names to color ids
-int syntaxColorCode(const char *name){
+int syntaxColorForCapture(const char *name){
     if (strcmp(name, "comment") == 0) return 90; // gray
     if (strcmp(name, "string") == 0) return 32; // green
     if (strcmp(name, "number") == 0) return 31; // red
