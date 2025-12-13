@@ -1,7 +1,12 @@
 #include "editor.h"
+#include "common.h"
 #include "terminal.h"
 #include "fileio.h"
 #include "autocomplete.h"
+#include "syntax.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 /*** editor functions ***/
 
@@ -21,18 +26,18 @@ void editorInsertChar(int c){
         // Create first row if none exists
         editorAllocateNewRow();
     }
-    
+
     // Ensure cursor is within bounds
     if (E.cy >= E.numrows) E.cy = E.numrows - 1;
     if (E.cy < 0) E.cy = 0;
-    
+
     int insertPos = E.cx;
     erow *row = &E.row[E.cy];
-    
+
     // Ensure cursor position is within row bounds
     if (insertPos > row->size) insertPos = row->size;
     if (insertPos < 0) insertPos = 0;
-    
+
     int oldSize = row->size;
     row->chars = realloc(row->chars, oldSize + 2);
     memmove(&row->chars[insertPos + 1], &row->chars[insertPos], oldSize - insertPos + 1);
@@ -42,6 +47,7 @@ void editorInsertChar(int c){
     row->chars[row->size] = '\0';
     E.cx = insertPos + 1;
     E.dirty = 1;
+    syntaxReparseFull();
 }
 
 void editorDeleteChar(void) {
@@ -59,6 +65,7 @@ void editorDeleteChar(void) {
         row->size--;
         E.cx--;
         E.dirty = 1;
+        syntaxReparseFull();
         return;
     }
 
@@ -69,6 +76,8 @@ void editorDeleteChar(void) {
         memcpy(&E.row[E.cy - 1].chars[prev_size], row->chars, row->size + 1);
         E.row[E.cy - 1].size = prev_size + row->size;
         E.dirty = 1;
+
+        syntaxReparseFull();
 
         // free current row
         free(row->chars);
@@ -83,19 +92,23 @@ void editorDeleteChar(void) {
 }
 
 void editorInsertNewline(void) {
+    if (autocompleteIsActive()){
+        autocompleteHideSuggestions();
+    }
+
     if (E.numrows == 0) {
         // Create first row if none exists
         editorAllocateNewRow();
         return;
     }
-    
+
     // Ensure cursor is within bounds
     if (E.cy < 0) E.cy = 0;
     if (E.cy >= E.numrows) E.cy = E.numrows - 1;
 
     erow *row = &E.row[E.cy];
     int split = E.cx;
-    
+
     // Ensure split position is within bounds
     if (split > row->size) split = row->size;
     if (split < 0) split = 0;
@@ -125,39 +138,42 @@ void editorInsertNewline(void) {
     E.cy++;
     E.cx = 0;
     E.dirty = 1;
+    syntaxReparseFull();
 }
 
 void editorMoveCursor(int key) {
     switch (key) {
-      case ARROW_LEFT:
-          if (E.cx > 0) {
-              E.cx--;
-          } else if (E.cy > 0) {
-              E.cy--;
-              E.cx = E.row[E.cy].size;
-          } else if (E.coloff > 0) {
-              E.coloff--;
-          }
-          break;
-      case ARROW_RIGHT:
-          if (E.numrows > 0 && E.cy < E.numrows && E.cx < E.row[E.cy].size) {
-              E.cx++;
-          }
-          break;
-      case ARROW_UP:
-        if (E.cy != 0) {
-            E.cy--;
-        } else if (E.rowoff > 0) {
-            E.rowoff--;
+        case ARROW_LEFT:
+            if (E.cx > 0) {
+                E.cx--;
+            } else if (E.cy > 0) {
+                E.cy--;
+                E.cx = E.row[E.cy].size;
+            } else if (E.coloff > 0) {
+                E.coloff--;
+            }
+            break;
+        case ARROW_RIGHT:
+            if (E.numrows > 0 && E.cy < E.numrows && E.cx < E.row[E.cy].size) {
+                E.cx++;
+            }
+            break;
+        case ARROW_UP:
+            if (E.cy != 0) {
+                E.cy--;
+            } else if (E.rowoff > 0) {
+                E.rowoff--;
+            }
+            break;
+        case ARROW_DOWN:
+            if (E.cy < E.numrows - 1) {
+                E.cy++;
+            }
+            break;
+        default:
+            break;
         }
-        break;
-      case ARROW_DOWN:
-        if (E.cy < E.numrows - 1) {
-            E.cy++;
-        }
-        break;
-    }
-    
+
     // Keep cursor in view
     if (E.cy < E.rowoff) {
         E.rowoff = E.cy;
@@ -186,9 +202,40 @@ void editorProcessKey(void){
             editorFree();
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
+            syntaxFree();
             exit(0);
             break;
+        case CTRL_KEY('a'):
+            // Move to start of line
+            E.cx = 0;
+            break;
+        case CTRL_KEY('e'):
+            E.cx = E.screencols - 1;
+            break;
+        case CTRL_KEY('k'):
+            if (E.numrows > 0){
+                erow *row = &E.row[E.cy];
+                if (E.cx < row->size){
+                    row->chars[E.cx] = '\0';
+                    row->size = E.cx;
+                    E.dirty = 1;
+                    syntaxReparseFull();
+                }
+            }
+            break;
 
+        case CTRL_KEY('b'):
+            editorMoveCursor(ARROW_LEFT);
+            break;
+        case CTRL_KEY('f'):
+            editorMoveCursor(ARROW_RIGHT);
+            break;
+        case CTRL_KEY('p'):
+            editorMoveCursor(ARROW_UP);
+            break;
+        case CTRL_KEY('n'):
+            editorMoveCursor(ARROW_DOWN);
+            break;
         case HOME_KEY:
             E.cx = 0;
             break;
@@ -217,7 +264,6 @@ void editorProcessKey(void){
             editorMoveCursor(c);
             break;
         case NEWLINE_KEY:
-            if (autocompleteIsActive()) {autocompleteAcceptSuggestion(); autocompleteHideSuggestions(); break;}
             editorInsertNewline();
             break;
         case BACKSPACE:
@@ -240,10 +286,10 @@ void editorProcessKey(void){
                     autocompleteShowSuggestions();
                 }
             }
+            syntaxReparseFull();
             break;
         default:
             editorInsertChar(c);
-
 
             // after inserting, recompute current word and update suggestions
             erow* row = &E.row[E.cy];
@@ -258,6 +304,7 @@ void editorProcessKey(void){
                 autocompleteUpdateSuggestions(word, E.cy, E.cx);
                 autocompleteShowSuggestions();
             }
+            syntaxReparseFull();
             break;
     }
 }
@@ -279,39 +326,68 @@ void editorScroll(void) {
 }
 
 void editorDrawRows(struct abuf *ab) {
-  int y;
-  for (y = 0; y < E.screenrows; y++) {
-    int filerow = y + E.rowoff;
-    if (filerow >= E.numrows){
-        if (y == E.screenrows / 3) {
-            char welcome[80];
-            int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo editor -- version %s", KILO_VERSION);
-            if (welcomelen > E.screencols) welcomelen = E.screencols;
-            int padding = (E.screencols - welcomelen) / 2;
-            if (padding) {
-                abAppend(ab, "~", 1);
-                padding--;
+    int y;
+    HighlightSpan spans[1024];
+    int nspans = syntaxQueryVisible(E.rowoff, E.rowoff + E.screenrows - 1, spans, 1024);
+
+    // Debug: write to file
+    static int debug_count = 0;
+    if (debug_count++ < 10) {
+        FILE *f = fopen("debug.txt", "a");
+        if (f) {
+            fprintf(f, "DEBUG: nspans=%d, E.numrows=%d, E.rowoff=%d, screenrows=%d\n",
+                    nspans, E.numrows, E.rowoff, E.screenrows);
+            if (nspans > 0) {
+                fprintf(f, "  First span: row=%d, start_col=%d, end_col=%d, color=%d\n",
+                        spans[0].row, spans[0].start_col, spans[0].end_col, spans[0].color_id);
             }
-            while (padding--) abAppend(ab, " ", 1);
-            abAppend(ab, welcome, welcomelen);
-        } else{
-            abAppend(ab, "~", 1);
-        }
-    } else {
-        int len = E.row[filerow].size - E.coloff;
-        if (len < 0) len = 0;
-        if (len > E.screencols) len = E.screencols;
-        for (int i = 0; i < len; i++) {
-            abAppend(ab, &E.row[filerow].chars[E.coloff + i], 1);
+            fclose(f);
         }
     }
 
-    abAppend(ab, "\x1b[K", 3);
-    if (y < E.screenrows - 1) {
-      abAppend(ab, "\r\n", 2);
+    for (y = 0; y < E.screenrows; y++) {
+        int filerow = y + E.rowoff;
+        if (filerow >= E.numrows) {
+            abAppend(ab, "~\x1b[K\r\n", 6);
+            continue;
+        }
+
+        erow *row = &E.row[filerow];
+        int len = row->size - E.coloff;
+        if (len < 0) len = 0;
+        if (len > E.screencols) len = E.screencols;
+
+        // Reset to default color at the start of each line
+        abAppend(ab, "\x1b[39m", 5);
+
+        int last_color = 39;
+        for (int i = 0; i < len; i++) {
+            // Find color for this character
+            int color = 39;
+            for (int s = 0; s < nspans; s++) {
+                if (spans[s].row == filerow &&
+                    i + E.coloff >= spans[s].start_col &&
+                    i + E.coloff < spans[s].end_col) {
+                    color = spans[s].color_id;
+                    break;
+                }
+            }
+
+            if (color != last_color) {
+                char buf[16];
+                int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                abAppend(ab, buf, clen);
+                last_color = color;
+            }
+
+            abAppend(ab, &row->chars[i + E.coloff], 1);
+        }
+
+        abAppend(ab, "\x1b[39m", 5);  // reset color
+        abAppend(ab, "\x1b[K\r\n", 5);
     }
-  }
 }
+
 
 void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\x1b[7m", 4); // invert colors

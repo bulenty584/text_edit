@@ -100,7 +100,24 @@ int syntaxInit(const char *lang_name, const char *query_path){
     if (!g_parser) return -1;
 
     g_lang = tree_sitter_c();
-    ts_parser_set_language(g_parser, g_lang);
+
+    FILE *dbg = fopen("debug.txt", "a");
+    if (dbg) {
+        fprintf(dbg, "=== syntaxInit ===\n");
+        fprintf(dbg, "Language pointer: %p\n", (void*)g_lang);
+        //fprintf(dbg, "Language ABI version: %u\n", ts_language_abi_version(g_lang));
+        fclose(dbg);
+    }
+
+    bool set_result = ts_parser_set_language(g_parser, g_lang);
+
+    if (dbg) {
+        dbg = fopen("debug.txt", "a");
+        fprintf(dbg, "ts_parser_set_language result: %d\n", set_result);
+        fclose(dbg);
+    }
+
+    printf("Language pointer: %p\n", g_lang);
 
     size_t qlen = 0;
     char *qsrc = read_file_to_string(query_path, &qlen);
@@ -110,31 +127,57 @@ int syntaxInit(const char *lang_name, const char *query_path){
     TSQueryError err_type = 0;
     g_query = ts_query_new(g_lang, qsrc, (uint32_t) qlen, &err_offset, &err_type);
 
+    if (!g_query) {
+        FILE *dbg = fopen("debug.txt", "a");
+        if (dbg) {
+            fprintf(dbg, "Query compilation failed! err_type=%d, err_offset=%u\n", err_type, err_offset);
+            fclose(dbg);
+        }
+        free(qsrc);
+        return -3;
+    }
+
     free(qsrc);
-    if (!g_query) return -3;
+
+    // Debug: log query info
+    dbg = fopen("debug.txt", "a");
+    if (dbg) {
+        uint32_t capture_count = ts_query_capture_count(g_query);
+        uint32_t pattern_count = ts_query_pattern_count(g_query);
+        fprintf(dbg, "Query compiled successfully!\n");
+        fprintf(dbg, "  Capture count: %u\n", capture_count);
+        fprintf(dbg, "  Pattern count: %u\n", pattern_count);
+        fclose(dbg);
+    }
 
     g_cursor = ts_query_cursor_new();
     if (!g_cursor) return -4;
 
-    rebuild_full_text();
-    g_tree = ts_parser_parse_string(g_parser, NULL, g_full_text, (uint32_t) g_full_len);
-    return (g_tree ? 0 : -5);
+    // Don't parse initially - tree will be NULL until first reparse
+
+    return 0;
 
 
 }
 
-int syntaxReparseFull(void){
+int syntaxReparseFull(void) {
     if (!g_parser) return -1;
 
     rebuild_full_text();
-    TSTree *new_tree = ts_parser_parse_string(g_parser, g_tree, g_full_text, (uint32_t) g_full_len);
 
+    // reset query cursor to ensure it uses current tree
+    if (g_cursor) ts_query_cursor_delete(g_cursor);
+    g_cursor = ts_query_cursor_new();
+
+    TSTree *old_tree = g_tree;
+    TSTree *new_tree = ts_parser_parse_string(g_parser, old_tree, g_full_text, (uint32_t)g_full_len);
     if (!new_tree) return -2;
-
-    ts_tree_delete(g_tree);
+    if (old_tree) ts_tree_delete(old_tree);
     g_tree = new_tree;
+
     return 0;
 }
+
 
 // simple mappings of names to color ids
 int syntaxColorForCapture(const char *name){
@@ -143,9 +186,15 @@ int syntaxColorForCapture(const char *name){
     if (strcmp(name, "number") == 0) return 31; // red
     if (strcmp(name, "type") == 0) return 36; // cyan
     if (strcmp(name, "keyword") == 0) return 33;  // yellow
-    if (strcmp(name, "function") == 0)return 34;  // blue
-    if (strcmp(name, "constant") == 0)return 35;  // magenta
-    return 39; //default
+    if (strcmp(name, "function") == 0) return 34;  // blue
+    if (strcmp(name, "function.special") == 0) return 34;  // blue (macros)
+    if (strcmp(name, "constant") == 0) return 35;  // magenta
+    if (strcmp(name, "property") == 0) return 36;  // cyan (struct fields)
+    if (strcmp(name, "label") == 0) return 35;  // magenta (goto labels)
+    if (strcmp(name, "operator") == 0) return 37;  // white (operators)
+    if (strcmp(name, "variable") == 0) return 39;  // default (identifiers)
+    if (strcmp(name, "delimiter") == 0) return 37;  // white (. and ;)
+    return 39; // default
 
 }
 
@@ -156,6 +205,41 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
     if (last_row >= E.numrows) last_row = E.numrows - 1;
     if (last_row < first_row) return 0;
 
+    // Debug: log what we're parsing (always for first 3 calls)
+    static int debug_count = 0;
+    debug_count++;
+    if (debug_count <= 3 || (debug_count == 10)) {
+        FILE *f = fopen("debug.txt", "a");
+        if (f) {
+            fprintf(f, "=== Call %d ===\n", debug_count);
+            fprintf(f, "syntaxQueryVisible: first_row=%d, last_row=%d\n", first_row, last_row);
+            fprintf(f, "  g_full_text='%s' (len=%zu)\n", g_full_text ? g_full_text : "NULL", g_full_len);
+            fprintf(f, "  g_row_offsets_count=%d\n", g_row_offsets_count);
+            if (E.numrows > 0 && E.row) {
+                fprintf(f, "  E.row[0].chars='%s' (size=%d)\n", E.row[0].chars, E.row[0].size);
+            }
+
+            // Debug: print parse tree
+            TSNode root = ts_tree_root_node(g_tree);
+            char *tree_str = ts_node_string(root);
+            fprintf(f, "  Parse tree: %s\n", tree_str);
+            fprintf(f, "  Root node has_error: %d\n", ts_node_has_error(root));
+            fprintf(f, "  Root node child_count: %d\n", ts_node_child_count(root));
+
+            // Print first child if it exists
+            if (ts_node_child_count(root) > 0) {
+                TSNode first_child = ts_node_child(root, 0);
+                char *child_str = ts_node_string(first_child);
+                fprintf(f, "  First child: %s\n", child_str);
+                free(child_str);
+            }
+
+            free(tree_str);
+
+            fclose(f);
+        }
+    }
+
     size_t start_byte = row_col_to_byte(first_row, 0);
     size_t end_byte = row_col_to_byte(last_row, E.row[last_row].size);
 
@@ -165,10 +249,62 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
     int count = 0;
     TSQueryMatch match;
 
+    // Debug: log query execution
+    static int query_debug = 0;
+    if (query_debug++ < 3) {
+        FILE *f = fopen("debug.txt", "a");
+        if (f) {
+            fprintf(f, "  Query: start_byte=%zu, end_byte=%zu\n", start_byte, end_byte);
+            fprintf(f, "  About to iterate matches...\n");
+            fclose(f);
+        }
+    }
+
     while (ts_query_cursor_next_match(g_cursor, &match)){
+        // Debug first match
+        if (query_debug <= 3) {
+            FILE *f = fopen("debug.txt", "a");
+            if (f) {
+                fprintf(f, "  Found match! capture_count=%d\n", match.capture_count);
+                fclose(f);
+            }
+        }
         for (uint32_t i = 0; i < match.capture_count; i++){
             TSQueryCapture cap = match.captures[i];
-            const char *cap_name = ts_query_capture_name_for_id(g_query, cap.index, NULL);
+
+            // Debug before crash
+            if (query_debug <= 3) {
+                FILE *f = fopen("debug.txt", "a");
+                if (f) {
+                    fprintf(f, "  Processing capture %d, index=%d\n", i, cap.index);
+                    fclose(f);
+                }
+            }
+
+            // ---- SAFETY CHECK START ----
+            uint32_t capture_count = ts_query_capture_count(g_query);
+            if (cap.index >= capture_count) {
+                FILE *f = fopen("debug.txt", "a");
+                if (f) {
+                    fprintf(f, "  ⚠️ Invalid capture index %u (max %u) — skipping\n",
+                            cap.index, capture_count);
+                    fclose(f);
+                }
+                continue;
+            }
+
+            uint32_t name_len = 0;
+            const char *cap_name = ts_query_capture_name_for_id(g_query, cap.index, &name_len);
+            if (!cap_name) {
+                FILE *f = fopen("debug.txt", "a");
+                if (f) {
+                    fprintf(f, "  ⚠️ Capture name lookup failed for id=%u\n", cap.index);
+                    fclose(f);
+                }
+                continue;
+            }
+            // ---- SAFETY CHECK END ----
+
             int color = syntaxColorForCapture(cap_name);
 
             TSNode node = cap.node;
