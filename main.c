@@ -8,7 +8,7 @@ int main(int argc, char *argv[]) {
   // Debug: write at start
   FILE *f = fopen("debug.txt", "w");
   if (f) {
-    fprintf(f, "=== KILO STARTED ===\n");
+    fprintf(f, "=== TEXTEDIT STARTED ===\n");
     fclose(f);
   }
 

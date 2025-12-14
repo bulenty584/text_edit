@@ -92,9 +92,6 @@ void editorDeleteChar(void) {
 }
 
 void editorInsertNewline(void) {
-    if (autocompleteIsActive()){
-        autocompleteHideSuggestions();
-    }
 
     if (E.numrows == 0) {
         // Create first row if none exists
@@ -191,6 +188,10 @@ void editorMoveCursor(int key) {
 
 void editorProcessKey(void){
     int c = editorReadKey();
+
+    if (autocompleteIsActive()){
+        autocompleteHideSuggestions();
+    }
 
     switch (c) {
         case CTRL_KEY('s'):
