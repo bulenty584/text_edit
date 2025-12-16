@@ -47,7 +47,6 @@ void editorInsertChar(int c){
     row->chars[row->size] = '\0';
     E.cx = insertPos + 1;
     E.dirty = 1;
-    syntaxReparseFull();
 }
 
 void editorDeleteChar(void) {
@@ -65,19 +64,15 @@ void editorDeleteChar(void) {
         row->size--;
         E.cx--;
         E.dirty = 1;
-        syntaxReparseFull();
-        return;
     }
 
     // case 2: at beginning of line -> merge with previous
-    if (E.cx == 0) {
+    else if (E.cx == 0) {
         int prev_size = E.row[E.cy - 1].size;
         E.row[E.cy - 1].chars = realloc(E.row[E.cy - 1].chars, prev_size + row->size + 1);
         memcpy(&E.row[E.cy - 1].chars[prev_size], row->chars, row->size + 1);
         E.row[E.cy - 1].size = prev_size + row->size;
         E.dirty = 1;
-
-        syntaxReparseFull();
 
         // free current row
         free(row->chars);
@@ -89,6 +84,7 @@ void editorDeleteChar(void) {
         E.cy--;
         E.cx = prev_size;  // move cursor to end of previous line
     }
+
 }
 
 void editorInsertNewline(void) {
@@ -135,7 +131,6 @@ void editorInsertNewline(void) {
     E.cy++;
     E.cx = 0;
     E.dirty = 1;
-    syntaxReparseFull();
 }
 
 void editorMoveCursor(int key) {
@@ -188,6 +183,7 @@ void editorMoveCursor(int key) {
 
 void editorProcessKey(void){
     int c = editorReadKey();
+    int buffer_changed = 0;
 
     if (autocompleteIsActive()){
         autocompleteHideSuggestions();
@@ -220,7 +216,7 @@ void editorProcessKey(void){
                     row->chars[E.cx] = '\0';
                     row->size = E.cx;
                     E.dirty = 1;
-                    syntaxReparseFull();
+                    buffer_changed = 1;
                 }
             }
             break;
@@ -266,13 +262,16 @@ void editorProcessKey(void){
             break;
         case NEWLINE_KEY:
             editorInsertNewline();
+            buffer_changed = 1;
             break;
         case BACKSPACE:
             editorDeleteChar();
+            buffer_changed = 1;
             break;
         case TAB_KEY:
             if (autocompleteIsActive()){
                 autocompleteAcceptSuggestion();
+                buffer_changed = 1;
             } else {
                 erow* row = &E.row[E.cy];
                 int start = E.cx;
@@ -287,10 +286,14 @@ void editorProcessKey(void){
                     autocompleteShowSuggestions();
                 }
             }
-            syntaxReparseFull();
-            break;
+          break;
         default:
+            if (!isprint((unsigned char)c)) {
+                break;  // ignore stray control characters
+            }
+
             editorInsertChar(c);
+            buffer_changed = 1;
 
             // after inserting, recompute current word and update suggestions
             erow* row = &E.row[E.cy];
@@ -305,8 +308,11 @@ void editorProcessKey(void){
                 autocompleteUpdateSuggestions(word, E.cy, E.cx);
                 autocompleteShowSuggestions();
             }
-            syntaxReparseFull();
             break;
+    }
+
+    if (buffer_changed) {
+        syntaxReparseFull();
     }
 }
 
@@ -357,7 +363,7 @@ void editorDrawRows(struct abuf *ab) {
         int len = row->size - E.coloff;
         if (len < 0) len = 0;
         if (len > E.screencols) len = E.screencols;
-
+	  
         // Reset to default color at the start of each line
         abAppend(ab, "\x1b[39m", 5);
 
