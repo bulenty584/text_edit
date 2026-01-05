@@ -184,10 +184,11 @@ void editorMoveCursor(int key) {
 void editorProcessKey(void){
     int c = editorReadKey();
     int buffer_changed = 0;
+    if (E.cy >= E.numrows) E.cy = E.numrows - 1;
+    if (E.cy < 0) E.cy = 0;
+    if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
+    if (E.cx < 0) E.cx = 0;
 
-    if (autocompleteIsActive()){
-        autocompleteHideSuggestions();
-    }
 
     switch (c) {
         case CTRL_KEY('s'):
@@ -216,6 +217,10 @@ void editorProcessKey(void){
                     row->chars[E.cx] = '\0';
                     row->size = E.cx;
                     E.dirty = 1;
+                    buffer_changed = 1;
+                } else if (E.cx == row->size && E.cy < E.numrows - 1){
+                    E.cx++;
+                    editorDeleteChar();
                     buffer_changed = 1;
                 }
             }
@@ -250,17 +255,32 @@ void editorProcessKey(void){
 
         case ARROW_UP:
             if (autocompleteIsActive()){
-                autocompleteSelectPrev(); break;
+                autocompleteSelectPrev();
+            } else {
+                editorMoveCursor(ARROW_UP);
             }
+            break;
         case ARROW_DOWN:
-        case ARROW_LEFT:
-            if (autocompleteIsActive()){
-                autocompleteSelectNext(); break;
+            if (autocompleteIsActive()) {
+                autocompleteSelectNext();
+            } else {
+                editorMoveCursor(ARROW_DOWN);
             }
+            break;
+        case ARROW_LEFT:
+            if (!autocompleteIsActive()){
+                editorMoveCursor(ARROW_LEFT);
+            }
+            break;
         case ARROW_RIGHT:
-            editorMoveCursor(c);
+            if (!autocompleteIsActive()) {
+                editorMoveCursor(ARROW_RIGHT);
+            }
             break;
         case NEWLINE_KEY:
+            if (autocompleteIsActive()){
+                autocompleteHideSuggestions();
+            }
             editorInsertNewline();
             buffer_changed = 1;
             break;
@@ -363,7 +383,7 @@ void editorDrawRows(struct abuf *ab) {
         int len = row->size - E.coloff;
         if (len < 0) len = 0;
         if (len > E.screencols) len = E.screencols;
-	  
+
         // Reset to default color at the start of each line
         abAppend(ab, "\x1b[39m", 5);
 

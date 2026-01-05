@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -pedantic -std=c99 \
          -Itree-sitter/lib/include \
-         -Itree-sitter-c/src
+         -Itree-sitter-c/src -g -O0
 LDFLAGS =
 
 SRCS = main.c common.c terminal.c buffer.c editor.c fileio.c \
