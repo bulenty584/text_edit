@@ -211,6 +211,7 @@ void editorProcessKey(void){
             E.cx = E.screencols - 1;
             break;
         case CTRL_KEY('k'):
+
             if (E.numrows > 0){
                 erow *row = &E.row[E.cy];
                 if (E.cx < row->size){
@@ -219,7 +220,8 @@ void editorProcessKey(void){
                     E.dirty = 1;
                     buffer_changed = 1;
                 } else if (E.cx == row->size && E.cy < E.numrows - 1){
-                    E.cx++;
+                    E.cy++;
+                    E.cx = 0;
                     editorDeleteChar();
                     buffer_changed = 1;
                 }
@@ -327,12 +329,15 @@ void editorProcessKey(void){
                 word[wordLen] = '\0';
                 autocompleteUpdateSuggestions(word, E.cy, E.cx);
                 autocompleteShowSuggestions();
+            } else if (autocompleteIsActive()) {
+                autocompleteHideSuggestions();
             }
             break;
     }
 
     if (buffer_changed) {
         syntaxReparseFull();
+        buffer_changed = 0;
     }
 }
 

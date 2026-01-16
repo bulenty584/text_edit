@@ -30,7 +30,7 @@ static char *read_file_to_string(const char *path, size_t *output_len){
         fclose(fp);
         return NULL;
     }
-    
+
     fseek(fp, 0, SEEK_SET);
 
     char *buf = malloc((size_t) sz + 1);
@@ -117,7 +117,7 @@ int syntaxInit(const char *lang_name, const char *query_path){
         fclose(dbg);
     }
 
-    printf("Language pointer: %p\n", g_lang);
+    printf("Language pointer: %p\n", (void *) g_lang);
 
     size_t qlen = 0;
     char *qsrc = read_file_to_string(query_path, &qlen);
@@ -168,11 +168,8 @@ int syntaxReparseFull(void) {
     // reset query cursor to ensure it uses current tree
     if (g_cursor) ts_query_cursor_delete(g_cursor);
     g_cursor = ts_query_cursor_new();
-
-    TSTree *old_tree = g_tree;
-    TSTree *new_tree = ts_parser_parse_string(g_parser, old_tree, g_full_text, (uint32_t)g_full_len);
+    TSTree *new_tree = ts_parser_parse_string(g_parser, NULL, g_full_text, (uint32_t)g_full_len);
     if (!new_tree) return -2;
-    if (old_tree) ts_tree_delete(old_tree);
     g_tree = new_tree;
 
     return 0;
@@ -371,4 +368,3 @@ void syntaxFree(void) {
     free(g_full_text); g_full_text = NULL; g_full_len = 0;
     free(g_row_byte_offsets); g_row_byte_offsets = NULL; g_row_offsets_count = 0;
 }
-

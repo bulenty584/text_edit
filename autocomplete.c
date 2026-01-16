@@ -10,7 +10,7 @@ void autocompleteInit(void){
     
     dictionary = trieCreateNode();
     if (!dictionary) return;
-    trieLoadDictionary(dictionary, "autocomplete/words.txt");
+    trieLoadDictionary(dictionary, "autocomplete/ckeys.txt");
 }
 
 void autocompleteCleanup(void){
