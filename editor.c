@@ -406,9 +406,14 @@ void editorDrawRows(struct abuf *ab) {
             }
 
             if (color != last_color) {
-                char buf[16];
-                int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
-                abAppend(ab, buf, clen);
+                char buf[32];
+                if (color >= 0){
+                    snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                } else {
+                    int palette = -color;
+                    snprintf(buf, sizeof(buf), "\x1b[38;5;%dm", palette);
+                }
+                abAppend(ab, buf, strlen(buf));
                 last_color = color;
             }
 

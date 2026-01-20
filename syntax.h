@@ -20,6 +20,10 @@ int syntaxReparseFull(void);
 // returns number of spans written to spans_out (up to max_spans)
 int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, int max_spans);
 
+// collect identifiers in scope for autocomplete
+int syntaxCollectIdentifiersInScope(const char *prefix, int row, int col,
+                                    char out[][MAX_WORD_LENGTH], int max_out);
+
 // cleanup all allocations
 void syntaxFree(void);
 

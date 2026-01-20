@@ -12,6 +12,58 @@ static TSQuery          *g_query = NULL;
 static TSQueryCursor    *g_cursor = NULL;
 static const TSLanguage *g_lang = NULL;
 
+static const char *k_ident_query = "(identifier) @id";
+
+static int prefix_match(const char* s, const char* prefix){
+    int n = strlen(prefix);
+    return n == 0 || strncmp(s, prefix, n) == 0;
+}
+
+static int append_unique(char out[][MAX_WORD_LENGTH], int max_out,
+                            int *count, const char* s)
+{
+    for (int i = 0; i < *count; i++){
+        if (strcmp(out[i], s) == 0) return 0;
+    }
+
+    if (*count >= max_out) return 0;
+    strncpy(out[*count], s, MAX_WORD_LENGTH - 1);
+    out[*count][MAX_WORD_LENGTH - 1] = '\0';
+    (*count)++;
+    return 1;
+}
+
+static TSNode find_enclosing_type(TSNode node, const char* type_name){
+    while (!ts_node_is_null(node)){
+        const char *type = ts_node_type(node);
+        if (strcmp(type, type_name) == 0) return node;
+        node = ts_node_parent(node);
+    }
+    TSNode null_node = {0};
+    return null_node;
+}
+
+static TSNode node_at_byte(TSNode root, uint32_t b){
+    TSNode cur = root;
+    while (true){
+        uint32_t n = ts_node_child_count(cur);
+        bool advanced = false;
+        for (uint32_t i = 0; i < n; i++){
+            TSNode ch = ts_node_child(cur, i);
+            uint32_t s = ts_node_start_byte(ch);
+            uint32_t e = ts_node_end_byte(ch);
+            if (b >= s && b < e){
+                cur = ch;
+                advanced = true;
+                break;
+            }
+        }
+        if (!advanced) break;
+    }
+
+    return cur;
+}
+
 // full source code texts with lines separated by \n and len of buffer
 static char *g_full_text = NULL;
 static size_t g_full_len = 0;
@@ -180,17 +232,28 @@ int syntaxReparseFull(void) {
 int syntaxColorForCapture(const char *name){
     if (strcmp(name, "comment") == 0) return 90; // gray
     if (strcmp(name, "string") == 0) return 32; // green
+    if (strcmp(name, "system_lib_string") == 0) return 32; // green
     if (strcmp(name, "number") == 0) return 31; // red
+    if (strcmp(name, "number_literal") == 0) return 31; // red
+    if (strcmp(name, "char_literal") == 0) return 31; // red
     if (strcmp(name, "type") == 0) return 36; // cyan
+    if (strcmp(name, "type_identifier") == 0) return 36; // cyan
+    if (strcmp(name, "primitive_type") == 0) return 36; // cyan
+    if (strcmp(name, "sized_type_specifier") == 0) return 36; // cyan
+    if (strcmp(name, "keyword.typedef") == 0) return -54; // dark indigo
+    if (strcmp(name, "keyword.return") == 0) return 31;
     if (strcmp(name, "keyword") == 0) return 33;  // yellow
+    if (strcmp(name, "preproc_directive") == 0) return 33;  // yellow (preprocessor)
     if (strcmp(name, "function") == 0) return 34;  // blue
     if (strcmp(name, "function.special") == 0) return 34;  // blue (macros)
     if (strcmp(name, "constant") == 0) return 35;  // magenta
     if (strcmp(name, "property") == 0) return 36;  // cyan (struct fields)
+    if (strcmp(name, "field_identifier") == 0) return 36;  // cyan (fields)
     if (strcmp(name, "label") == 0) return 35;  // magenta (goto labels)
+    if (strcmp(name, "statement_identifier") == 0) return 35;  // magenta (labels)
     if (strcmp(name, "operator") == 0) return 37;  // white (operators)
-    if (strcmp(name, "variable") == 0) return 39;  // default (identifiers)
     if (strcmp(name, "delimiter") == 0) return 37;  // white (. and ;)
+    if (strcmp(name, "variable") == 0) return 39;  // default (identifiers)
     return 39; // default
 
 }
@@ -359,6 +422,55 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
 
     return count;
 }
+
+int syntaxCollectIdentifiersInScope(const char* prefix, int row, int col, 
+                                        char out[][MAX_WORD_LENGTH], int max_out)
+{
+    if (!g_tree || !g_row_byte_offsets || !g_full_text) return 0;
+    if (!prefix) prefix = "";
+
+    int count = 0;
+    uint32_t b = (uint32_t) row_col_to_byte(row, col);
+    TSNode root = ts_tree_root_node(g_tree);
+    TSNode node = node_at_byte(root, b);
+    TSNode func = find_enclosing_type(node, "function_definition");
+
+    TSQueryError err;
+    uint32_t err_offset = 0;
+    TSQuery *q = ts_query_new(g_lang, k_ident_query, (uint32_t)strlen(k_ident_query), &err_offset, &err);
+
+    if (!q) return 0;
+
+    TSQueryCursor *cur = ts_query_cursor_new();
+    TSNode scope = ts_node_is_null(func) ? root : func;
+
+    ts_query_cursor_exec(cur, q, scope);
+
+    TSQueryMatch m;
+    while (ts_query_cursor_next_match(cur, &m) && count < max_out){
+        for (uint32_t i = 0; i < m.capture_count; i++){
+            TSNode id = m.captures[i].node;
+            uint32_t s = ts_node_start_byte(id);
+            uint32_t e = ts_node_end_byte(id);
+            uint32_t len = e > s ? e - s : 0;
+            if (len == 0 || len >= MAX_WORD_LENGTH) continue;
+
+            char tmp[MAX_WORD_LENGTH];
+            memcpy(tmp, g_full_text + s, len);
+            tmp[len] = '\0';
+
+            if (!prefix_match(tmp, prefix)) continue;
+            append_unique(out, max_out, &count, tmp);
+            if (count >= max_out) break;
+        }
+    }
+
+    ts_query_cursor_delete(cur);
+    ts_query_delete(q);
+
+    return count;
+}
+
 
 void syntaxFree(void) {
     if (g_cursor) ts_query_cursor_delete(g_cursor), g_cursor = NULL;

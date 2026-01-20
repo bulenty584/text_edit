@@ -5,6 +5,7 @@
 #include "autocomplete/Trie.h"
 #include "common.h"
 #include "buffer.h"
+#include "syntax.h"
 
 // Autocomplete functions
 void autocompleteInit(void);

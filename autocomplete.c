@@ -27,13 +27,40 @@ void autocompleteUpdateSuggestions(const char* word, int row, int col){
 
     if (!word || strlen(word) < 2 || !dictionary) return;
 
+    char scoped[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
+    int scoped_count = syntaxCollectIdentifiersInScope(word, row, col, scoped, MAX_SUGGESTIONS);
+
+    int out_count = 0;
+    for (int i = 0; i < scoped_count && out_count < MAX_SUGGESTIONS; i++){
+        strncpy(E.autocomplete.suggestions[out_count], scoped[i], MAX_WORD_LENGTH - 1);
+        E.autocomplete.suggestions[out_count][MAX_WORD_LENGTH - 1] = '\0';
+        out_count++;
+    }
     strncpy(E.autocomplete.current_word, word, MAX_WORD_LENGTH - 1);
     E.autocomplete.current_word[MAX_WORD_LENGTH - 1] = '\0';
 
     E.autocomplete.start_row = row;
     E.autocomplete.start_col = col - strlen(word);
-    E.autocomplete.count = trieGetSuggestions(dictionary, word, E.autocomplete.suggestions, MAX_SUGGESTIONS);
+    char normalized[MAX_WORD_LENGTH];
+    int nlen = 0;
+    bool valid_trie_prefix = true;
+    for (int i = 0; word[i] && nlen < MAX_WORD_LENGTH - 1; i++){
+        unsigned char ch = (unsigned char) word[i];
+        if (!isalpha(ch)) { valid_trie_prefix = false; break; }
+        normalized[nlen++] = (char) tolower(ch);
+    }
+    normalized[nlen] = '\0';
 
+    int trie_count = 0;
+    if (valid_trie_prefix){
+        trie_count = trieGetSuggestions(
+            dictionary,
+            normalized,
+            E.autocomplete.suggestions + out_count,
+            MAX_SUGGESTIONS - out_count
+        );
+    }
+    E.autocomplete.count = out_count + trie_count;
     if (E.autocomplete.count > 0){
         E.autocomplete.is_active = true;
         E.autocomplete.selected = 0;
