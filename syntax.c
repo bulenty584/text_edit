@@ -14,6 +14,58 @@ static const TSLanguage *g_lang = NULL;
 
 static const char *k_ident_query = "(identifier) @id";
 
+// Tier 1: locals + params
+// static const char *k_query_locals = 
+// "(function_definition body: (compound_statement (declaration declarator: (init_declarator declarator: (identifier) @local_id))))"
+// "(parameter_declaration declarator: (identifier) @param_id)";
+
+// // Tier 2: struct/union fields
+// static const char *k_query_fields = 
+// "(field_declaration declarator: (field_identifier) @field_id)";
+
+// // Tier 3: file-scope globals/types/functions/enums
+// static const char *k_query_globals =
+// "(declaration declarator: (init_declarator declarator: (identifier) @global_id))"
+// "(type_definition declarator: (type_identifier) @global_id)"
+// "(function_definition declarator: (function_declarator declarator: (identifier) @global_id))"
+// "(enum_specifier name: (identifier) @global_id)"
+// "(preproc_def name: (identifier) @global_id)";
+
+static const char *k_query_locals = "(identifier) @id";
+static const char *k_query_fields = "(field_identifier) @id";
+static const char *k_query_globals = "(identifier) @id";
+
+
+// full source code texts with lines separated by \n and len of buffer
+static char *g_full_text = NULL;
+static size_t g_full_len = 0;
+
+// Byte offset at the start of each row (converting from editor rows, cols to byte mapping in flat buffer)
+static size_t *g_row_byte_offsets = NULL;
+static int g_row_offsets_count = 0;
+
+// read file into memory (for highlights.scm)
+static char *read_file_to_string(const char *path, size_t *output_len){
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    if (sz < 0){
+        fclose(fp);
+        return NULL;
+    }
+
+    fseek(fp, 0, SEEK_SET);
+
+    char *buf = malloc((size_t) sz + 1);
+    if (!buf){ fclose(fp); return NULL;}
+    size_t n = fread(buf, 1, (size_t) sz, fp);
+    fclose(fp);
+    buf[n] = '\0';
+    if (output_len) *output_len = n;
+    return buf;
+}
+
 static int prefix_match(const char* s, const char* prefix){
     int n = strlen(prefix);
     return n == 0 || strncmp(s, prefix, n) == 0;
@@ -64,34 +116,50 @@ static TSNode node_at_byte(TSNode root, uint32_t b){
     return cur;
 }
 
-// full source code texts with lines separated by \n and len of buffer
-static char *g_full_text = NULL;
-static size_t g_full_len = 0;
+static int collect_ids(TSNode scope, const char *qsrc,
+                        const char *prefix,
+                        char out[][MAX_WORD_LENGTH], int max_out)
+{
+    if (ts_node_is_null(scope)) return 0;
 
-// Byte offset at the start of each row (converting from editor rows, cols to byte mapping in flat buffer)
-static size_t *g_row_byte_offsets = NULL;
-static int g_row_offsets_count = 0;
+    TSQueryError err;
+    uint32_t err_offset = 0;
+    TSQuery *q = ts_query_new(g_lang, qsrc, (uint32_t)strlen(qsrc), &err_offset, &err);
 
-// read file into memory (for highlights.scm)
-static char *read_file_to_string(const char *path, size_t *output_len){
-    FILE *fp = fopen(path, "rb");
-    if (!fp) return NULL;
-    fseek(fp, 0, SEEK_END);
-    long sz = ftell(fp);
-    if (sz < 0){
-        fclose(fp);
-        return NULL;
+    if (!q) {
+        fprintf(stderr, "query err=%d offset=%u\n", err, err_offset);
+        return 0;
     }
 
-    fseek(fp, 0, SEEK_SET);
 
-    char *buf = malloc((size_t) sz + 1);
-    if (!buf){ fclose(fp); return NULL;}
-    size_t n = fread(buf, 1, (size_t) sz, fp);
-    fclose(fp);
-    buf[n] = '\0';
-    if (output_len) *output_len = n;
-    return buf;
+    TSQueryCursor *cur = ts_query_cursor_new();
+    ts_query_cursor_exec(cur, q, scope);
+
+    int count = 0;
+    TSQueryMatch m;
+    while (ts_query_cursor_next_match(cur, &m) && count < max_out){
+        for (uint32_t i = 0; i < m.capture_count; i++){
+            TSNode id = m.captures[i].node;
+            uint32_t s = ts_node_start_byte(id);
+            uint32_t e = ts_node_end_byte(id);
+            uint32_t len = e > s ? e - s : 0;
+            if (len == 0 || len >= MAX_WORD_LENGTH) continue;
+
+            char tmp[MAX_WORD_LENGTH];
+            memcpy(tmp, g_full_text + s, len);
+            tmp[len] = '\0';
+
+            if (!prefix_match(tmp, prefix)) continue;
+            append_unique(out, max_out, &count, tmp);
+            if (count >= max_out) break;
+        }
+    }
+
+    ts_query_cursor_delete(cur);
+    ts_query_delete(q);
+
+    return count;
+
 }
 
 // build g_full_text and g_row_byte_offsets from E
@@ -434,41 +502,35 @@ int syntaxCollectIdentifiersInScope(const char* prefix, int row, int col,
     TSNode root = ts_tree_root_node(g_tree);
     TSNode node = node_at_byte(root, b);
     TSNode func = find_enclosing_type(node, "function_definition");
+    TSNode strt = find_enclosing_type(node, "struct_specifier");
+    TSNode un = find_enclosing_type(node, "union_specifier");
 
-    TSQueryError err;
-    uint32_t err_offset = 0;
-    TSQuery *q = ts_query_new(g_lang, k_ident_query, (uint32_t)strlen(k_ident_query), &err_offset, &err);
+    char locals[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
+    char str_fields[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
+    char un_fields[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
+    char globals[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
+    int out_count = 0;
 
-    if (!q) return 0;
+    int n1 = collect_ids(func, k_query_locals, prefix, locals, MAX_SUGGESTIONS);
+    int n2 = collect_ids(strt, k_query_fields, prefix, str_fields, MAX_SUGGESTIONS);
+    int n3 = collect_ids(un, k_query_fields, prefix, un_fields, MAX_SUGGESTIONS);
+    int n4 = collect_ids(root, k_query_globals, prefix, globals, MAX_SUGGESTIONS);
 
-    TSQueryCursor *cur = ts_query_cursor_new();
-    TSNode scope = ts_node_is_null(func) ? root : func;
-
-    ts_query_cursor_exec(cur, q, scope);
-
-    TSQueryMatch m;
-    while (ts_query_cursor_next_match(cur, &m) && count < max_out){
-        for (uint32_t i = 0; i < m.capture_count; i++){
-            TSNode id = m.captures[i].node;
-            uint32_t s = ts_node_start_byte(id);
-            uint32_t e = ts_node_end_byte(id);
-            uint32_t len = e > s ? e - s : 0;
-            if (len == 0 || len >= MAX_WORD_LENGTH) continue;
-
-            char tmp[MAX_WORD_LENGTH];
-            memcpy(tmp, g_full_text + s, len);
-            tmp[len] = '\0';
-
-            if (!prefix_match(tmp, prefix)) continue;
-            append_unique(out, max_out, &count, tmp);
-            if (count >= max_out) break;
-        }
+    for (int i = 0; i < n1 && out_count < MAX_SUGGESTIONS; i++){
+        append_unique(out, MAX_SUGGESTIONS, &out_count, locals[i]);
+    }
+    for (int i = 0; i < n2 && out_count < MAX_SUGGESTIONS; i++){
+        append_unique(out, MAX_SUGGESTIONS, &out_count, str_fields[i]);
+    }
+    for (int i = 0; i < n3 && out_count < MAX_SUGGESTIONS; i++){
+        append_unique(out, MAX_SUGGESTIONS, &out_count, un_fields[i]);
+    }
+    for (int i = 0; i < n4 && out_count < MAX_SUGGESTIONS; i++){
+        append_unique(out, MAX_SUGGESTIONS, &out_count, globals[i]);
     }
 
-    ts_query_cursor_delete(cur);
-    ts_query_delete(q);
+    return out_count;
 
-    return count;
 }
 
 
