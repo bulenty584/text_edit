@@ -290,6 +290,7 @@ int syntaxReparseFull(void) {
     g_cursor = ts_query_cursor_new();
     TSTree *new_tree = ts_parser_parse_string(g_parser, NULL, g_full_text, (uint32_t)g_full_len);
     if (!new_tree) return -2;
+    if (g_tree) ts_tree_delete(g_tree);
     g_tree = new_tree;
 
     return 0;

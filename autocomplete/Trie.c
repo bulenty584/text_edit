@@ -1,11 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 
 #include "Trie.h"
 
-void trieLoadDictionary(TrieNode* root, const char* filename){
+TrieNode* dictionary = NULL;
+
+void trieInitDictionary(void) {
+    dictionary = trieCreateNode();
+    if (!dictionary) {
+        fprintf(stderr, "Failed to initialize dictionary\n");
+        exit(1);
+    }
+}
+
+void trieLoadDictionary(const char* filename){
+    if (!dictionary) trieInitDictionary();
+    TrieNode* root = dictionary;
     FILE *fp = fopen(filename, "r");
 
     if (!fp){
@@ -47,6 +58,7 @@ TrieNode *trieCreateNode(void){
 }
 
 void trieInsertWord(TrieNode* root, const char* word){
+    if (!root) return;
     TrieNode* curr = root;
 
     while (*word){

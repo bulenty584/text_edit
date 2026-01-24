@@ -15,6 +15,10 @@ void editorScroll(void);
 void editorDrawRows(struct abuf *ab);
 void editorDrawStatusBar(struct abuf *ab);
 void editorRefreshScreen(void);
+void editorSearchStart(void);
+void editorSearchCancel(void);
+void editorSearchCommit(void);
+void editorSearchUpdate(void);
 void initEditor(void);
 
 #endif

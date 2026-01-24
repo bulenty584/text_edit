@@ -14,7 +14,7 @@
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
-#define KILO_VERSION "0.0.1"
+#define TEXTEDITVERSION "0.0.1"
 #define MAX_SUGGESTIONS 10
 #define MAX_WORD_LENGTH 256
 
@@ -64,6 +64,16 @@ struct editorConfig {
     char *filename;
     int dirty;
     AutoCompleteState autocomplete;
+
+    // search state
+    int search_active;
+    char search_query[128];
+    int search_len;
+    int search_saved_cx, search_saved_cy;
+    int search_match_row;
+    int search_match_col;
+    int search_match_len;
+
 };
 
 extern struct editorConfig E;

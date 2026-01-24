@@ -10,6 +10,52 @@
 
 /*** editor functions ***/
 
+void editorSearchStart(void) {
+    E.search_active = 1;
+    E.search_len = 0;
+    E.search_query[0] = '\0';
+    E.search_saved_cx = E.cx;
+    E.search_saved_cy = E.cy;
+    E.search_match_row = -1;
+    E.search_match_col = -1;
+    E.search_match_len = 0;
+}
+
+void editorSearchCancel(void) {
+    E.search_active = 0;
+    E.search_len = 0;
+    E.search_query[0] = '\0';
+    E.cx = E.search_saved_cx;
+    E.cy = E.search_saved_cy;
+    E.search_match_row = -1;
+    E.search_match_col = -1;
+    E.search_match_len = 0;
+}
+
+void editorSearchCommit(void) {
+    E.search_active = 0;
+}
+
+void editorSearchUpdate(void) {
+    if (E.search_len == 0) return;
+    for (int i = 0; i < E.numrows; i++){
+        erow *row = &E.row[i];
+        char *match = strstr(row->chars, E.search_query);
+        if (match) {
+            int match_col = (int)(match - row->chars);
+            E.cy = i;
+            E.cx = match_col + E.search_len;
+            E.search_match_row = i;
+            E.search_match_col = match_col;
+            E.search_match_len = E.search_len;
+            return;
+        }
+    }
+    E.search_match_row = -1;
+    E.search_match_col = -1;
+    E.search_match_len = 0;
+}
+
 void editorAllocateNewRow(void){
     E.row = malloc(sizeof(erow));
     E.row[0].size = 0;
@@ -39,7 +85,11 @@ void editorInsertChar(int c){
     if (insertPos < 0) insertPos = 0;
 
     int oldSize = row->size;
-    row->chars = realloc(row->chars, oldSize + 2);
+    char* new_chars = realloc(row->chars, oldSize + 2);
+    if (!new_chars){
+        return;
+    }
+    row->chars = new_chars;
     memmove(&row->chars[insertPos + 1], &row->chars[insertPos], oldSize - insertPos + 1);
     row = &E.row[E.cy];
     row->chars[insertPos] = (char)c;
@@ -69,7 +119,11 @@ void editorDeleteChar(void) {
     // case 2: at beginning of line -> merge with previous
     else if (E.cx == 0) {
         int prev_size = E.row[E.cy - 1].size;
-        E.row[E.cy - 1].chars = realloc(E.row[E.cy - 1].chars, prev_size + row->size + 1);
+        char* new_chars = realloc(E.row[E.cy - 1].chars, prev_size + row->size + 1);
+        if (!new_chars){
+            return;
+        }
+        E.row[E.cy - 1].chars = new_chars;
         memcpy(&E.row[E.cy - 1].chars[prev_size], row->chars, row->size + 1);
         E.row[E.cy - 1].size = prev_size + row->size;
         E.dirty = 1;
@@ -107,7 +161,11 @@ void editorInsertNewline(void) {
     if (split < 0) split = 0;
 
     // Allocate space for new line
-    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    erow* new_row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    if (!new_row){
+        return;
+    }
+    E.row = new_row;
 
     // Shift existing rows below current line down by one
     memmove(&E.row[E.cy + 1], &E.row[E.cy],
@@ -124,7 +182,11 @@ void editorInsertNewline(void) {
 
     // Truncate the current line at cursor position
     row->size = split;
-    row->chars = realloc(row->chars, split + 1);
+    char* new_chars = realloc(row->chars, split + 1);
+    if (!new_chars){
+        return;
+    }
+    row->chars = new_chars;
     row->chars[split] = '\0';
 
     E.numrows++;
@@ -166,6 +228,16 @@ void editorMoveCursor(int key) {
             break;
         }
 
+    if (E.numrows > 0 && E.cy >= 0 && E.cy < E.numrows) {
+        if (E.cx > E.row[E.cy].size) {
+            E.cx = E.row[E.cy].size;
+        }
+        if (E.cx < 0) {
+            E.cx = 0;
+        }
+    } else {
+        E.cx = 0;
+    }
     // Keep cursor in view
     if (E.cy < E.rowoff) {
         E.rowoff = E.cy;
@@ -189,10 +261,36 @@ void editorProcessKey(void){
     if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
     if (E.cx < 0) E.cx = 0;
 
+    if (E.search_active) {
+        if (c == '\x1b') {
+            editorSearchCancel();
+            return;
+        } else if (c == NEWLINE_KEY || c == ENTER) {
+            editorSearchCommit();
+            return;
+        } else if (c == BACKSPACE) {
+            if (E.search_len > 0){
+                E.search_len--;
+                E.search_query[E.search_len] = '\0';
+                editorSearchUpdate();
+            }
+            return;
+        } else if (isprint((unsigned char)c)) {
+            if (E.search_len < (int) sizeof(E.search_query) - 1) {
+                E.search_query[E.search_len++] = (char)c;
+                E.search_query[E.search_len] = '\0';
+                editorSearchUpdate();
+            }
+            return;
+        }
+    }
 
     switch (c) {
         case CTRL_KEY('s'):
             editorSave();
+            break;
+        case CTRL_KEY('l'):
+            editorSearchStart();
             break;
         case CTRL_KEY('q'):
         case CTRL_KEY('c'):
@@ -208,7 +306,11 @@ void editorProcessKey(void){
             E.cx = 0;
             break;
         case CTRL_KEY('e'):
-            E.cx = E.screencols - 1;
+            if (E.numrows > 0 && E.cy >= 0 && E.cy < E.numrows) {
+                E.cx = E.row[E.cy].size;
+            } else {
+                E.cx = 0;
+            }
             break;
         case CTRL_KEY('k'):
 
@@ -244,7 +346,11 @@ void editorProcessKey(void){
             E.cx = 0;
             break;
         case END_KEY:
-            E.cx = E.screencols - 1;
+            if (E.numrows > 0 && E.cy >= 0 && E.cy < E.numrows) {
+                E.cx = E.row[E.cy].size;
+            } else {
+                E.cx = 0;
+            }
             break;
         case PAGE_UP:
         case PAGE_DOWN:
@@ -417,7 +523,25 @@ void editorDrawRows(struct abuf *ab) {
                 last_color = color;
             }
 
-            abAppend(ab, &row->chars[i + E.coloff], 1);
+            int screen_col = i + E.coloff;
+
+            int in_search = 0;
+            if (E.search_active && E.search_match_row == filerow && E.search_match_col >= 0){
+                int start = E.search_match_col;
+                int end = start + E.search_match_len;
+                if (screen_col >= start && screen_col < end){
+                    in_search = 1;
+                }
+            }
+
+            if (in_search) {
+                abAppend(ab, "\x1b[48;5;238m", 11);
+            }
+            abAppend(ab, &row->chars[screen_col], 1);
+
+            if (in_search) {
+                abAppend(ab, "\x1b[49m", 5); // reset
+            }
         }
 
         abAppend(ab, "\x1b[39m", 5);  // reset color
@@ -429,8 +553,13 @@ void editorDrawRows(struct abuf *ab) {
 void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\x1b[7m", 4); // invert colors
     char status[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+    int len;
+    if (E.search_active){
+        len = snprintf(status, sizeof(status), "Search %s (ESC to cancel)", E.search_query);
+    } else {
+        len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
                        E.filename, E.numrows, E.dirty ? "(modified)" : "");
+    }
     if (len > E.screencols) len = E.screencols;
     abAppend(ab, status, len);
     while (len < E.screencols) {

@@ -2,8 +2,8 @@
 
 #ifndef TRIE_H
 #define TRIE_H
-
 #define ALPHABET_SIZE 26
+#include <stdbool.h>
 
 typedef struct TrieNode {
     struct TrieNode* children[26];
@@ -12,7 +12,7 @@ typedef struct TrieNode {
 
 TrieNode* trieCreateNode(void);
 
-void trieLoadDictionary(TrieNode* root, const char* filename);
+void trieLoadDictionary(const char* filename);
 
 void trieInsertWord(TrieNode* root, const char* word);
 
@@ -22,6 +22,6 @@ int trieGetSuggestions(TrieNode* root, const char* prefix, char suggestions[][25
 
 void trieFree(TrieNode* root);
 
-TrieNode* dictionary;
+extern TrieNode* dictionary;
 
 #endif

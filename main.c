@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
 
   } else {
     // HARDCODED FILENAME
-    E.filename = "temp.txt";
+    E.filename = "temp.c";
     syntaxReparseFull();
   }
 
