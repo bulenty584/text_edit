@@ -7,7 +7,7 @@ void autocompleteInit(void){
     E.autocomplete.start_col = 0;
     E.autocomplete.current_word[0] = '\0';
     E.autocomplete.is_active = false;
-    trieLoadDictionary("autocomplete/ckeys.txt");
+    trieLoadDictionary("assets/ckeys.txt");
 }
 
 void autocompleteCleanup(void){

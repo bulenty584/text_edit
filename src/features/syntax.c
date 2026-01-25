@@ -12,7 +12,7 @@ static TSQuery          *g_query = NULL;
 static TSQueryCursor    *g_cursor = NULL;
 static const TSLanguage *g_lang = NULL;
 
-static const char *k_ident_query = "(identifier) @id";
+//static const char *k_ident_query = "(identifier) @id";
 
 // Tier 1: locals + params
 // static const char *k_query_locals = 
@@ -498,7 +498,6 @@ int syntaxCollectIdentifiersInScope(const char* prefix, int row, int col,
     if (!g_tree || !g_row_byte_offsets || !g_full_text) return 0;
     if (!prefix) prefix = "";
 
-    int count = 0;
     uint32_t b = (uint32_t) row_col_to_byte(row, col);
     TSNode root = ts_tree_root_node(g_tree);
     TSNode node = node_at_byte(root, b);
