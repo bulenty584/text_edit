@@ -18,9 +18,12 @@ void autocompleteCleanup(void){
 }
 
 void autocompleteUpdateSuggestions(const char* word, int row, int col){
+
     E.autocomplete.count = 0;
     E.autocomplete.selected = 0;
     E.autocomplete.is_active = false;
+
+    if (syntaxCursorOnDeclaratorName(row, col)) return;
 
     if (!word || strlen(word) < 2 || !dictionary) return;
 
@@ -43,7 +46,7 @@ void autocompleteUpdateSuggestions(const char* word, int row, int col){
     bool valid_trie_prefix = true;
     for (int i = 0; word[i] && nlen < MAX_WORD_LENGTH - 1; i++){
         unsigned char ch = (unsigned char) word[i];
-        if (!isalpha(ch)) { valid_trie_prefix = false; break; }
+        if (!(isalpha(ch) || ch == '_' || isdigit(ch))) { valid_trie_prefix = false; break; }
         normalized[nlen++] = (char) tolower(ch);
     }
     normalized[nlen] = '\0';

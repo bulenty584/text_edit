@@ -4,39 +4,38 @@
 #include "fileio.h"
 #include "syntax.h"
 
-int main(int argc, char *argv[]) {
-  // Debug: write at start
-  FILE *f = fopen("debug.txt", "w");
-  if (f) {
-    fprintf(f, "=== TEXTEDIT STARTED ===\n");
-    fclose(f);
-  }
+static int is_c_file(const char *path) {
+  const char *dot = strrchr(path, '.');
+  return dot && (strcmp(dot, ".c") == 0 || strcmp(dot, ".h") == 0);
+}
 
+int main(int argc, char *argv[]) {
   enableRawMode();
   initEditor();
 
-  // Initialize syntax highlighting for C code
-  int d = syntaxInit("c", "tree-sitter-c/queries/highlights.scm");
-  if (d != 0) {
-    perror("syntax init failed");
-    exit(1);
-  }
-
-  printf("d code: %d\n", d);
-
   if (argc >= 2) {
-    editorOpen(argv[1]);
-    syntaxReparseFull();
+      editorOpen(argv[1]);
 
+      if (is_c_file(argv[1])) {
+          if (syntaxInit("c", "tree-sitter-c/queries/highlights.scm") != 0) {
+              perror("syntax init failed");
+              exit(1);
+          }
+          syntaxReparseFull();
+      }
   } else {
-    // HARDCODED FILENAME
-    E.filename = "temp.c";
-    syntaxReparseFull();
+      E.filename = "temp.c";
+      if (syntaxInit("c", "tree-sitter-c/queries/highlights.scm") != 0) {
+          perror("syntax init failed");
+          exit(1);
+      }
+      syntaxReparseFull();
   }
 
   while (1) {
-    editorRefreshScreen();
-    editorProcessKey();
+      editorRefreshScreen();
+      editorProcessKey();
   }
   return 0;
 }
+

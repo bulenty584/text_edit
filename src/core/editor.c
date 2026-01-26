@@ -256,6 +256,7 @@ void editorMoveCursor(int key) {
 void editorProcessKey(void){
     int c = editorReadKey();
     int buffer_changed = 0;
+    int did_reparse = 0;
     if (E.cy >= E.numrows) E.cy = E.numrows - 1;
     if (E.cy < 0) E.cy = 0;
     if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
@@ -263,6 +264,10 @@ void editorProcessKey(void){
 
     if (E.search_active) {
         if (c == '\x1b') {
+            if (autocompleteIsActive()){
+                autocompleteHideSuggestions();
+                return;
+            }
             editorSearchCancel();
             return;
         } else if (c == NEWLINE_KEY || c == ENTER) {
@@ -291,6 +296,9 @@ void editorProcessKey(void){
             break;
         case CTRL_KEY('l'):
             editorSearchStart();
+            break;
+        case CTRL_KEY('d'):
+            E.debug_tree = !E.debug_tree;
             break;
         case CTRL_KEY('q'):
         case CTRL_KEY('c'):
@@ -403,7 +411,12 @@ void editorProcessKey(void){
             } else {
                 erow* row = &E.row[E.cy];
                 int start = E.cx;
-                while (start > 0 && isalnum((unsigned char) row->chars[start - 1])) start--;
+                while (start > 0) {
+                    unsigned char ch = (unsigned char) row->chars[start - 1];
+                    if (!(isalnum(ch) || ch == '_')) break;
+                    start--;
+                }
+
 
                 int wordLen = E.cx - start;
                 char word[MAX_WORD_LENGTH];
@@ -411,11 +424,13 @@ void editorProcessKey(void){
                     memcpy(word, &row->chars[start], wordLen);
                     word[wordLen] = '\0';
                     syntaxReparseFull();
+                    if (E.debug_tree) syntaxDebugDumpTree();
+                    did_reparse = 1;
                     autocompleteUpdateSuggestions(word, E.cy, E.cx);
                     autocompleteShowSuggestions();
                 }
             }
-          break;
+            break;
         default:
             if (!isprint((unsigned char)c)) {
                 break;  // ignore stray control characters
@@ -427,7 +442,11 @@ void editorProcessKey(void){
             // after inserting, recompute current word and update suggestions
             erow* row = &E.row[E.cy];
             int start = E.cx;
-            while (start > 0 && isalnum((unsigned char) row->chars[start - 1])) start--;
+            while (start > 0) {
+                unsigned char ch = (unsigned char) row->chars[start - 1];
+                if (!(isalnum(ch) || ch == '_')) break;
+                start--;
+            }
 
             int wordLen = E.cx - start;
             char word[MAX_WORD_LENGTH];
@@ -435,6 +454,8 @@ void editorProcessKey(void){
                 memcpy(word, &row->chars[start], wordLen);
                 word[wordLen] = '\0';
                 syntaxReparseFull();
+                if (E.debug_tree) syntaxDebugDumpTree();
+                did_reparse = 1;
                 autocompleteUpdateSuggestions(word, E.cy, E.cx);
                 autocompleteShowSuggestions();
             } else if (autocompleteIsActive()) {
@@ -443,8 +464,9 @@ void editorProcessKey(void){
             break;
     }
 
-    if (buffer_changed) {
+    if (buffer_changed && !did_reparse) {
         syntaxReparseFull();
+        if (E.debug_tree) syntaxDebugDumpTree();
         buffer_changed = 0;
     }
 }
@@ -469,21 +491,6 @@ void editorDrawRows(struct abuf *ab) {
     int y;
     HighlightSpan spans[1024];
     int nspans = syntaxQueryVisible(E.rowoff, E.rowoff + E.screenrows - 1, spans, 1024);
-
-    // Debug: write to file
-    static int debug_count = 0;
-    if (debug_count++ < 10) {
-        FILE *f = fopen("debug.txt", "a");
-        if (f) {
-            fprintf(f, "DEBUG: nspans=%d, E.numrows=%d, E.rowoff=%d, screenrows=%d\n",
-                    nspans, E.numrows, E.rowoff, E.screenrows);
-            if (nspans > 0) {
-                fprintf(f, "  First span: row=%d, start_col=%d, end_col=%d, color=%d\n",
-                        spans[0].row, spans[0].start_col, spans[0].end_col, spans[0].color_id);
-            }
-            fclose(f);
-        }
-    }
 
     for (y = 0; y < E.screenrows; y++) {
         int filerow = y + E.rowoff;
@@ -559,7 +566,7 @@ void editorDrawStatusBar(struct abuf *ab) {
     if (E.search_active){
         len = snprintf(status, sizeof(status), "Search %s (ESC to cancel)", E.search_query);
     } else {
-        len = snprintf(status, sizeof(status), "L%d %.20s - %d lines %s", E.cy,
+        len = snprintf(status, sizeof(status), "L%d %.20s - %d lines %s", E.cy + 1,
                        E.filename, E.numrows, E.dirty ? "(modified)" : "");
     }
     if (len > E.screencols) len = E.screencols;
@@ -614,6 +621,7 @@ void initEditor(void) {
     E.row[0].chars = malloc(1);
     E.row[0].chars[0] = '\0';
     E.dirty = 0;
+    E.debug_tree = 0;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
   E.screenrows -= 1;
   autocompleteInit();

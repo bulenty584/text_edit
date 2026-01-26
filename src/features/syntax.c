@@ -15,9 +15,11 @@ static const TSLanguage *g_lang = NULL;
 //static const char *k_ident_query = "(identifier) @id";
 
 // Tier 1: locals + params
-// static const char *k_query_locals = 
-// "(function_definition body: (compound_statement (declaration declarator: (init_declarator declarator: (identifier) @local_id))))"
-// "(parameter_declaration declarator: (identifier) @param_id)";
+static const char *k_query_locals =
+"(parameter_declaration declarator: (identifier) @id) "
+"(declaration declarator: (init_declarator declarator: (identifier) @id))";
+
+
 
 // // Tier 2: struct/union fields
 // static const char *k_query_fields = 
@@ -31,7 +33,7 @@ static const TSLanguage *g_lang = NULL;
 // "(enum_specifier name: (identifier) @global_id)"
 // "(preproc_def name: (identifier) @global_id)";
 
-static const char *k_query_locals = "(identifier) @id";
+// static const char *k_query_locals = "(identifier) @id";
 static const char *k_query_fields = "(field_identifier) @id";
 static const char *k_query_globals = "(identifier) @id";
 
@@ -43,6 +45,20 @@ static size_t g_full_len = 0;
 // Byte offset at the start of each row (converting from editor rows, cols to byte mapping in flat buffer)
 static size_t *g_row_byte_offsets = NULL;
 static int g_row_offsets_count = 0;
+
+// Function to debug syntax tree
+void syntaxDebugDumpTree(void) {
+    if (!g_tree) return;
+    TSNode root = ts_tree_root_node(g_tree);
+    char *tree_str = ts_node_string(root);
+    FILE *f = fopen("debug_tree.txt", "w");
+    if (f) {
+        fputs(tree_str, f);
+        fclose(f);
+    }
+    free(tree_str);
+}
+
 
 // read file into memory (for highlights.scm)
 static char *read_file_to_string(const char *path, size_t *output_len){
@@ -96,29 +112,13 @@ static TSNode find_enclosing_type(TSNode node, const char* type_name){
 }
 
 static TSNode node_at_byte(TSNode root, uint32_t b){
-    TSNode cur = root;
-    while (true){
-        uint32_t n = ts_node_child_count(cur);
-        bool advanced = false;
-        for (uint32_t i = 0; i < n; i++){
-            TSNode ch = ts_node_child(cur, i);
-            uint32_t s = ts_node_start_byte(ch);
-            uint32_t e = ts_node_end_byte(ch);
-            if (b >= s && b < e){
-                cur = ch;
-                advanced = true;
-                break;
-            }
-        }
-        if (!advanced) break;
-    }
-
-    return cur;
+    return ts_node_descendant_for_byte_range(root, b, b);
 }
+
 
 static int collect_ids(TSNode scope, const char *qsrc,
                         const char *prefix,
-                        char out[][MAX_WORD_LENGTH], int max_out)
+                        char out[][MAX_WORD_LENGTH], int max_out, uint32_t cursor_byte)
 {
     if (ts_node_is_null(scope)) return 0;
 
@@ -142,6 +142,7 @@ static int collect_ids(TSNode scope, const char *qsrc,
             TSNode id = m.captures[i].node;
             uint32_t s = ts_node_start_byte(id);
             uint32_t e = ts_node_end_byte(id);
+            if (cursor_byte >= s && cursor_byte < e) continue;
             uint32_t len = e > s ? e - s : 0;
             if (len == 0 || len >= MAX_WORD_LENGTH) continue;
 
@@ -214,6 +215,32 @@ static size_t row_col_to_byte(int row, int col){
     return base + (size_t) col;
 }
 
+bool syntaxCursorOnDeclaratorName(int row, int col) {
+    if (col > 0) col -= 1;
+    if (!g_tree || !g_row_byte_offsets) return false;
+
+    uint32_t b = (uint32_t) row_col_to_byte(row, col);
+    TSNode root = ts_tree_root_node(g_tree);
+    TSNode node = ts_node_descendant_for_byte_range(root, b, b);
+
+    TSNode cur = node;
+    while (!ts_node_is_null(cur)) {
+        if (strcmp(ts_node_type(cur), "init_declarator") == 0) {
+            TSNode decl = ts_node_child_by_field_name(cur, "declarator", 10);
+            if (!ts_node_is_null(decl)) {
+                uint32_t ds = ts_node_start_byte(decl);
+                uint32_t de = ts_node_end_byte(decl);
+                return b >= ds && b < de; // only block if on the name
+            }
+            return false;
+        }
+        cur = ts_node_parent(cur);
+    }
+    return false;
+}
+
+
+
 int syntaxInit(const char *lang_name, const char *query_path){
     (void) lang_name;
     g_parser = ts_parser_new();
@@ -221,23 +248,7 @@ int syntaxInit(const char *lang_name, const char *query_path){
 
     g_lang = tree_sitter_c();
 
-    FILE *dbg = fopen("debug.txt", "a");
-    if (dbg) {
-        fprintf(dbg, "=== syntaxInit ===\n");
-        fprintf(dbg, "Language pointer: %p\n", (void*)g_lang);
-        //fprintf(dbg, "Language ABI version: %u\n", ts_language_abi_version(g_lang));
-        fclose(dbg);
-    }
-
     bool set_result = ts_parser_set_language(g_parser, g_lang);
-
-    if (dbg) {
-        dbg = fopen("debug.txt", "a");
-        fprintf(dbg, "ts_parser_set_language result: %d\n", set_result);
-        fclose(dbg);
-    }
-
-    printf("Language pointer: %p\n", (void *) g_lang);
 
     size_t qlen = 0;
     char *qsrc = read_file_to_string(query_path, &qlen);
@@ -248,27 +259,11 @@ int syntaxInit(const char *lang_name, const char *query_path){
     g_query = ts_query_new(g_lang, qsrc, (uint32_t) qlen, &err_offset, &err_type);
 
     if (!g_query) {
-        FILE *dbg = fopen("debug.txt", "a");
-        if (dbg) {
-            fprintf(dbg, "Query compilation failed! err_type=%d, err_offset=%u\n", err_type, err_offset);
-            fclose(dbg);
-        }
         free(qsrc);
         return -3;
     }
 
     free(qsrc);
-
-    // Debug: log query info
-    dbg = fopen("debug.txt", "a");
-    if (dbg) {
-        uint32_t capture_count = ts_query_capture_count(g_query);
-        uint32_t pattern_count = ts_query_pattern_count(g_query);
-        fprintf(dbg, "Query compiled successfully!\n");
-        fprintf(dbg, "  Capture count: %u\n", capture_count);
-        fprintf(dbg, "  Pattern count: %u\n", pattern_count);
-        fclose(dbg);
-    }
 
     g_cursor = ts_query_cursor_new();
     if (!g_cursor) return -4;
@@ -334,41 +329,6 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
     if (last_row >= E.numrows) last_row = E.numrows - 1;
     if (last_row < first_row) return 0;
 
-    // Debug: log what we're parsing (always for first 3 calls)
-    static int debug_count = 0;
-    debug_count++;
-    if (debug_count <= 3 || (debug_count == 10)) {
-        FILE *f = fopen("debug.txt", "a");
-        if (f) {
-            fprintf(f, "=== Call %d ===\n", debug_count);
-            fprintf(f, "syntaxQueryVisible: first_row=%d, last_row=%d\n", first_row, last_row);
-            fprintf(f, "  g_full_text='%s' (len=%zu)\n", g_full_text ? g_full_text : "NULL", g_full_len);
-            fprintf(f, "  g_row_offsets_count=%d\n", g_row_offsets_count);
-            if (E.numrows > 0 && E.row) {
-                fprintf(f, "  E.row[0].chars='%s' (size=%d)\n", E.row[0].chars, E.row[0].size);
-            }
-
-            // Debug: print parse tree
-            TSNode root = ts_tree_root_node(g_tree);
-            char *tree_str = ts_node_string(root);
-            fprintf(f, "  Parse tree: %s\n", tree_str);
-            fprintf(f, "  Root node has_error: %d\n", ts_node_has_error(root));
-            fprintf(f, "  Root node child_count: %d\n", ts_node_child_count(root));
-
-            // Print first child if it exists
-            if (ts_node_child_count(root) > 0) {
-                TSNode first_child = ts_node_child(root, 0);
-                char *child_str = ts_node_string(first_child);
-                fprintf(f, "  First child: %s\n", child_str);
-                free(child_str);
-            }
-
-            free(tree_str);
-
-            fclose(f);
-        }
-    }
-
     size_t start_byte = row_col_to_byte(first_row, 0);
     size_t end_byte = row_col_to_byte(last_row, E.row[last_row].size);
 
@@ -378,58 +338,20 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
     int count = 0;
     TSQueryMatch match;
 
-    // Debug: log query execution
-    static int query_debug = 0;
-    if (query_debug++ < 3) {
-        FILE *f = fopen("debug.txt", "a");
-        if (f) {
-            fprintf(f, "  Query: start_byte=%zu, end_byte=%zu\n", start_byte, end_byte);
-            fprintf(f, "  About to iterate matches...\n");
-            fclose(f);
-        }
-    }
-
     while (ts_query_cursor_next_match(g_cursor, &match)){
-        // Debug first match
-        if (query_debug <= 3) {
-            FILE *f = fopen("debug.txt", "a");
-            if (f) {
-                fprintf(f, "  Found match! capture_count=%d\n", match.capture_count);
-                fclose(f);
-            }
-        }
+
         for (uint32_t i = 0; i < match.capture_count; i++){
             TSQueryCapture cap = match.captures[i];
-
-            // Debug before crash
-            if (query_debug <= 3) {
-                FILE *f = fopen("debug.txt", "a");
-                if (f) {
-                    fprintf(f, "  Processing capture %d, index=%d\n", i, cap.index);
-                    fclose(f);
-                }
-            }
 
             // ---- SAFETY CHECK START ----
             uint32_t capture_count = ts_query_capture_count(g_query);
             if (cap.index >= capture_count) {
-                FILE *f = fopen("debug.txt", "a");
-                if (f) {
-                    fprintf(f, "  ⚠️ Invalid capture index %u (max %u) — skipping\n",
-                            cap.index, capture_count);
-                    fclose(f);
-                }
                 continue;
             }
 
             uint32_t name_len = 0;
             const char *cap_name = ts_query_capture_name_for_id(g_query, cap.index, &name_len);
             if (!cap_name) {
-                FILE *f = fopen("debug.txt", "a");
-                if (f) {
-                    fprintf(f, "  ⚠️ Capture name lookup failed for id=%u\n", cap.index);
-                    fclose(f);
-                }
                 continue;
             }
             // ---- SAFETY CHECK END ----
@@ -512,10 +434,10 @@ int syntaxCollectIdentifiersInScope(const char* prefix, int row, int col,
     char globals[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
     int out_count = 0;
 
-    int n1 = collect_ids(func, k_query_locals, prefix, locals, MAX_SUGGESTIONS);
-    int n2 = collect_ids(strt, k_query_fields, prefix, str_fields, MAX_SUGGESTIONS);
-    int n3 = collect_ids(un, k_query_fields, prefix, un_fields, MAX_SUGGESTIONS);
-    int n4 = collect_ids(root, k_query_globals, prefix, globals, MAX_SUGGESTIONS);
+    int n1 = collect_ids(func, k_query_locals, prefix, locals, MAX_SUGGESTIONS, b);
+    int n2 = collect_ids(strt, k_query_fields, prefix, str_fields, MAX_SUGGESTIONS, b);
+    int n3 = collect_ids(un, k_query_fields, prefix, un_fields, MAX_SUGGESTIONS, b);
+    int n4 = collect_ids(root, k_query_globals, prefix, globals, MAX_SUGGESTIONS, b);
 
     for (int i = 0; i < n1 && out_count < MAX_SUGGESTIONS; i++){
         append_unique(out, MAX_SUGGESTIONS, &out_count, locals[i]);

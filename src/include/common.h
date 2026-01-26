@@ -64,6 +64,7 @@ struct editorConfig {
     char *filename;
     int dirty;
     int line_num;
+    int debug_tree;
     AutoCompleteState autocomplete;
 
     // search state

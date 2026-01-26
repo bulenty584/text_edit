@@ -24,8 +24,15 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
 int syntaxCollectIdentifiersInScope(const char *prefix, int row, int col,
                                     char out[][MAX_WORD_LENGTH]);
 
+bool syntaxCursorOnDeclaratorName(int row, int col);
+
+void syntaxDebugDumpTree(void);
+
+
+
 // cleanup all allocations
 void syntaxFree(void);
+
 
 // Map a capture name to color id
 int syntaxColorForCapture(const char *capture_name);
