@@ -22,7 +22,7 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
 
 // collect identifiers in scope for autocomplete
 int syntaxCollectIdentifiersInScope(const char *prefix, int row, int col,
-                                    char out[][MAX_WORD_LENGTH], int max_out);
+                                    char out[][MAX_WORD_LENGTH]);
 
 // cleanup all allocations
 void syntaxFree(void);

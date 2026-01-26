@@ -25,7 +25,7 @@ void autocompleteUpdateSuggestions(const char* word, int row, int col){
     if (!word || strlen(word) < 2 || !dictionary) return;
 
     char scoped[MAX_SUGGESTIONS][MAX_WORD_LENGTH];
-    int scoped_count = syntaxCollectIdentifiersInScope(word, row, col, scoped, MAX_SUGGESTIONS);
+    int scoped_count = syntaxCollectIdentifiersInScope(word, row, col, scoped);
 
     int out_count = 0;
     for (int i = 0; i < scoped_count && out_count < MAX_SUGGESTIONS; i++){

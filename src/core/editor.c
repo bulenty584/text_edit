@@ -410,6 +410,7 @@ void editorProcessKey(void){
                 if (wordLen > 0 && wordLen < MAX_WORD_LENGTH){
                     memcpy(word, &row->chars[start], wordLen);
                     word[wordLen] = '\0';
+                    syntaxReparseFull();
                     autocompleteUpdateSuggestions(word, E.cy, E.cx);
                     autocompleteShowSuggestions();
                 }
@@ -433,6 +434,7 @@ void editorProcessKey(void){
             if (wordLen >= 2 && wordLen < MAX_WORD_LENGTH){
                 memcpy(word, &row->chars[start], wordLen);
                 word[wordLen] = '\0';
+                syntaxReparseFull();
                 autocompleteUpdateSuggestions(word, E.cy, E.cx);
                 autocompleteShowSuggestions();
             } else if (autocompleteIsActive()) {
@@ -557,7 +559,7 @@ void editorDrawStatusBar(struct abuf *ab) {
     if (E.search_active){
         len = snprintf(status, sizeof(status), "Search %s (ESC to cancel)", E.search_query);
     } else {
-        len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+        len = snprintf(status, sizeof(status), "L%d %.20s - %d lines %s", E.cy,
                        E.filename, E.numrows, E.dirty ? "(modified)" : "");
     }
     if (len > E.screencols) len = E.screencols;

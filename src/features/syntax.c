@@ -493,8 +493,9 @@ int syntaxQueryVisible(int first_row, int last_row, HighlightSpan *spans_out, in
 }
 
 int syntaxCollectIdentifiersInScope(const char* prefix, int row, int col, 
-                                        char out[][MAX_WORD_LENGTH], int max_out)
+                                        char out[][MAX_WORD_LENGTH])
 {
+    if (col > 0) col -= 1;
     if (!g_tree || !g_row_byte_offsets || !g_full_text) return 0;
     if (!prefix) prefix = "";
 
