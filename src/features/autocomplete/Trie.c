@@ -65,7 +65,6 @@ void trieInsertWord(TrieNode* root, const char* word){
         int index = *word - 'a';
 
         if (index < 0 || index >= ALPHABET_SIZE) {word++; continue;}
-
         if (!curr->children[index]) curr->children[index] = trieCreateNode();
 
         curr = curr->children[index];

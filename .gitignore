@@ -55,7 +55,6 @@ dkms.conf
 
 .vscode/*
 .vscode
-tree-sitter*
 *.zip
 temp*
 textedit
