@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -pedantic -std=c99 \
+        -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
         -Itree-sitter/lib/include \
         -Itree-sitter-c/src -g -O0 \
         -I src/include \
