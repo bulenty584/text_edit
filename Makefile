@@ -25,6 +25,17 @@ SRCS = src/main.c \
 
 BUILD_DIR = build
 OBJS = $(SRCS:%.c=$(BUILD_DIR)/%.o)
+TEST_SRCS = tests/test_parser.c tests/test_syntax.c
+TEST_BINS = $(TEST_SRCS:tests/%.c=$(BUILD_DIR)/tests/%)
+
+$(BUILD_DIR)/tests/%: tests/%.c \
+    src/include/common.c \
+    src/features/syntax.c \
+    tree-sitter/lib/src/lib.c \
+    tree-sitter-c/src/parser.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 
 textedit: $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
@@ -34,6 +45,13 @@ $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-.PHONY: clean
+.PHONY: clean test
 clean:
 	rm -rf textedit $(BUILD_DIR)
+
+test: $(TEST_BINS)
+	@for t in $(TEST_BINS); do \
+		echo "Running $$t"; \
+		$$t || exit 1; \
+	done
+
