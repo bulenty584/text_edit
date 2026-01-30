@@ -8,7 +8,22 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+/*** static helpers ***/
+static int int_to_str(int v, char *out) {
+    char tmp[16];
+    int n = 0;
+    if (v == 0) { out[0] = '0'; return 1; }
+    while (v > 0 && n < (int)sizeof(tmp)) {
+        tmp[n++] = (char)('0' + (v % 10));
+        v /= 10;
+    }
+    for (int i = 0; i < n; i++) out[i] = tmp[n - 1 - i];
+    return n;
+}
+
 /*** editor functions ***/
+
+
 
 void editorSearchStart(void) {
     E.search_active = 1;
@@ -54,6 +69,35 @@ void editorSearchUpdate(void) {
     E.search_match_row = -1;
     E.search_match_col = -1;
     E.search_match_len = 0;
+}
+
+void editorGotoStart(void) {
+    E.goto_active = 1;
+    E.goto_len = 0;
+    E.goto_buf[0] = '\0';
+    E.goto_saved_cx = E.cx;
+    E.goto_saved_cy = E.cy;
+}
+
+void editorGotoCancel(void) {
+    E.goto_active = 0;
+    E.goto_len = 0;
+    E.goto_buf[0] = '\0';
+    E.cx = E.goto_saved_cx;
+    E.cy = E.goto_saved_cy;
+}
+
+void editorGotoCommit(void) {
+    E.goto_active = 0;
+}
+
+void editorGotoUpdate(void) {
+    if (E.goto_len == 0) return;
+    int line = atoi(E.goto_buf) - 1;
+    if (line < 0) line = 0;
+    if (line >= E.numrows) line = E.numrows - 1;
+    E.cy = line;
+    if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
 }
 
 void editorAllocateNewRow(void){
@@ -290,12 +334,40 @@ void editorProcessKey(void){
         }
     }
 
+    if (E.goto_active) {
+        if (c == '\x1b') {
+            editorGotoCancel();
+            return;
+        } else if (c == NEWLINE_KEY || c == ENTER){
+            editorGotoCommit();
+            return;
+        } else if (c == BACKSPACE) {
+            if (E.goto_len > 0) {
+                E.goto_len--;
+                E.goto_buf[E.goto_len] = '\0';
+                editorGotoUpdate();
+            }
+            return;
+        } else if (isdigit((unsigned char) c)) {
+            if (E.goto_len < (int) sizeof(E.goto_buf) - 1) {
+                E.goto_buf[E.goto_len++] = (char) c;
+                E.goto_buf[E.goto_len] = '\0';
+                editorGotoUpdate();
+            }
+            return;
+        }
+    }
+
     switch (c) {
         case CTRL_KEY('s'):
             editorSave();
             break;
         case CTRL_KEY('l'):
             editorSearchStart();
+            break;
+        case CTRL_KEY('j'):
+            // TODO: ADD jump to line!
+            editorGotoStart();
             break;
         case CTRL_KEY('d'):
             E.debug_tree = !E.debug_tree;
@@ -563,6 +635,29 @@ void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\x1b[7m", 4); // invert colors
     char status[80];
     int len;
+    if (E.goto_active) {
+        const char *prefix = "Go to line (current ";
+        len = 0;
+
+        abAppend(ab, prefix, (int)strlen(prefix));
+        len += (int)strlen(prefix);
+
+        char num_buf[16];
+        int num_len = int_to_str(E.cy + 1, num_buf);
+        abAppend(ab, num_buf, num_len);
+        len += num_len;
+
+        abAppend(ab, "): ", 3);
+        len += 3;
+
+        abAppend(ab, E.goto_buf, E.goto_len);
+        len += E.goto_len;
+
+        while (len < E.screencols) { abAppend(ab, " ", 1); len++; }
+        abAppend(ab, "\x1b[m", 3);
+        return;
+    }
+
     if (E.search_active){
         len = snprintf(status, sizeof(status), "Search %s (ESC to cancel)", E.search_query);
     } else {

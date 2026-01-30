@@ -65,6 +65,10 @@ struct editorConfig {
     int dirty;
     int line_num;
     int debug_tree;
+    int goto_active;
+    char goto_buf[16];
+    int goto_len;
+    int goto_saved_cx, goto_saved_cy;
     AutoCompleteState autocomplete;
 
     // search state

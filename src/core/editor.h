@@ -19,6 +19,10 @@ void editorSearchStart(void);
 void editorSearchCancel(void);
 void editorSearchCommit(void);
 void editorSearchUpdate(void);
+void editorGotoStart(void);
+void editorGotoCancle(void);
+void editorGotoCommit(void);
+void editorGotoUpdate(void);
 void initEditor(void);
 
 #endif
