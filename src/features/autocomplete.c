@@ -17,6 +17,10 @@ void autocompleteCleanup(void){
     }
 }
 
+void autocompleteCancelIfCursorMoved(int prev_cx, int prev_cy){
+    if (prev_cx != E.cx || prev_cy != E.cy) autocompleteHideSuggestions();
+}
+
 void autocompleteUpdateSuggestions(const char* word, int row, int col){
 
     E.autocomplete.count = 0;

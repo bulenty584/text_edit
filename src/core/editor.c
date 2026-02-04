@@ -298,6 +298,8 @@ void editorMoveCursor(int key) {
 }
 
 void editorProcessKey(void){
+    int prev_cx = E.cx;
+    int prev_cy = E.cy;
     int c = editorReadKey();
     int buffer_changed = 0;
     int did_reparse = 0;
@@ -305,6 +307,10 @@ void editorProcessKey(void){
     if (E.cy < 0) E.cy = 0;
     if (E.cx > E.row[E.cy].size) E.cx = E.row[E.cy].size;
     if (E.cx < 0) E.cx = 0;
+
+    if (c == '\x1b'){
+        if (autocompleteIsActive()) autocompleteHideSuggestions();
+    }
 
     if (E.search_active) {
         if (c == '\x1b') {
@@ -316,6 +322,7 @@ void editorProcessKey(void){
             return;
         } else if (c == NEWLINE_KEY || c == ENTER) {
             editorSearchCommit();
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             return;
         } else if (c == BACKSPACE) {
             if (E.search_len > 0){
@@ -340,6 +347,7 @@ void editorProcessKey(void){
             return;
         } else if (c == NEWLINE_KEY || c == ENTER){
             editorGotoCommit();
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             return;
         } else if (c == BACKSPACE) {
             if (E.goto_len > 0) {
@@ -366,7 +374,6 @@ void editorProcessKey(void){
             editorSearchStart();
             break;
         case CTRL_KEY('j'):
-            // TODO: ADD jump to line!
             editorGotoStart();
             break;
         case CTRL_KEY('d'):
@@ -384,6 +391,7 @@ void editorProcessKey(void){
         case CTRL_KEY('a'):
             // Move to start of line
             E.cx = 0;
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             break;
         case CTRL_KEY('e'):
             if (E.numrows > 0 && E.cy >= 0 && E.cy < E.numrows) {
@@ -391,6 +399,7 @@ void editorProcessKey(void){
             } else {
                 E.cx = 0;
             }
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             break;
         case CTRL_KEY('k'):
 
@@ -408,6 +417,7 @@ void editorProcessKey(void){
                     buffer_changed = 1;
                 }
             }
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             break;
 
         case CTRL_KEY('b'):
@@ -418,9 +428,11 @@ void editorProcessKey(void){
             break;
         case CTRL_KEY('p'):
             editorMoveCursor(ARROW_UP);
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             break;
         case CTRL_KEY('n'):
             editorMoveCursor(ARROW_DOWN);
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             break;
         case HOME_KEY:
             E.cx = 0;
@@ -456,14 +468,10 @@ void editorProcessKey(void){
             }
             break;
         case ARROW_LEFT:
-            if (!autocompleteIsActive()){
-                editorMoveCursor(ARROW_LEFT);
-            }
+            editorMoveCursor(ARROW_LEFT);
             break;
         case ARROW_RIGHT:
-            if (!autocompleteIsActive()) {
-                editorMoveCursor(ARROW_RIGHT);
-            }
+            editorMoveCursor(ARROW_RIGHT);
             break;
         case NEWLINE_KEY:
             if (autocompleteIsActive()){
@@ -504,6 +512,7 @@ void editorProcessKey(void){
             }
             break;
         default:
+            autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
             if (!isprint((unsigned char)c)) {
                 break;  // ignore stray control characters
             }

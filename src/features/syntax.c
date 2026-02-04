@@ -247,8 +247,13 @@ int syntaxInit(const char *lang_name, const char *query_path){
     if (!g_parser) return -1;
 
     g_lang = tree_sitter_c();
+    if (!g_lang) return -1;
 
     bool set_result = ts_parser_set_language(g_parser, g_lang);
+    if (!set_result) {
+        printf("language could not be set");
+        return -2;
+    }
 
     size_t qlen = 0;
     char *qsrc = read_file_to_string(query_path, &qlen);

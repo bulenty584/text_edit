@@ -17,6 +17,7 @@ void autocompleteSelectNext(void);
 void autocompleteSelectPrev(void);
 void autocompleteAcceptSuggestion(void);
 bool autocompleteIsActive(void);
+void autocompleteCancelIfCursorMoved(int prev_cx, int prev_cy);
 void autocompleteDrawSuggestions(struct abuf *ab);
 
 #endif
