@@ -28,5 +28,6 @@ int main(int argc, char *argv[]) {
       editorRefreshScreen();
       editorProcessKey();
   }
+
   return 0;
 }

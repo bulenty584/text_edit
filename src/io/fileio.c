@@ -33,7 +33,13 @@ void editorOpen(char *filename) {
   E.filename = filename;
   FILE *fp = fopen(filename, "r");
   if (!fp) die("fopen");
-
+  if (E.row) {
+      for (int i = 0; i < E.numrows; i++){
+          if (E.row[i].chars) free(E.row[i].chars);
+          E.row[i].chars = NULL;
+      }
+      free(E.row);
+  }
   E.numrows = 0;
   E.row = NULL;
   char *line = NULL;
