@@ -22,6 +22,9 @@ int main(int argc, char *argv[]) {
           }
           syntaxReparseFull();
       }
+  } else {
+      E.filename = "temp.txt";
+      editorAllocateNewRow();
   }
 
   while (1) {

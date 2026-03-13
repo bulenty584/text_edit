@@ -752,11 +752,8 @@ void initEditor(void) {
     E.cy = 0;
     E.rowoff = 0;
     E.coloff = 0;
-    E.numrows = 1;
-    E.row = malloc(sizeof(erow));
-    E.row[0].size = 0;
-    E.row[0].chars = malloc(1);
-    E.row[0].chars[0] = '\0';
+    E.numrows = 0;
+    E.row = NULL;
     E.dirty = 0;
     E.debug_tree = 0;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");

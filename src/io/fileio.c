@@ -13,8 +13,7 @@ void editorFree(void) {
 }
 
 void editorSave(void) {
-  if (E.numrows == 0) return;
-
+  if (E.numrows == 0 || !E.filename) return;
   FILE *fp = fopen(E.filename, "w");
   if (!fp) die("fopen");
 
