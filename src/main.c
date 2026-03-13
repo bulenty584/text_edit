@@ -1,4 +1,3 @@
-#include "common.h"
 #include "terminal.h"
 #include "editor.h"
 #include "fileio.h"
@@ -23,13 +22,6 @@ int main(int argc, char *argv[]) {
           }
           syntaxReparseFull();
       }
-  } else {
-      E.filename = "temp.c";
-      if (syntaxInit("c", "tree-sitter-c/queries/highlights.scm") != 0) {
-          perror("syntax init failed");
-          exit(1);
-      }
-      syntaxReparseFull();
   }
 
   while (1) {
@@ -38,4 +30,3 @@ int main(int argc, char *argv[]) {
   }
   return 0;
 }
-

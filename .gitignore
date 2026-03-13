@@ -60,3 +60,4 @@ build/
 
 temp*
 textedit
+.clangd

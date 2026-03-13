@@ -1,5 +1,6 @@
 #include "fileio.h"
 #include "terminal.h"
+#include "history.h"
 
 /*** file i/o functions ***/
 
@@ -8,14 +9,15 @@ void editorFree(void) {
         free(E.row[i].chars);
     }
     free(E.row);
+    historyFree();
 }
 
 void editorSave(void) {
   if (E.numrows == 0) return;
-  
+
   FILE *fp = fopen(E.filename, "w");
   if (!fp) die("fopen");
-  
+
   for (int i = 0; i < E.numrows; i++) {
     fwrite(E.row[i].chars, E.row[i].size, 1, fp);
     if (i < E.numrows - 1) {
@@ -23,7 +25,7 @@ void editorSave(void) {
     }
   }
   E.dirty = 0;
-  
+
   fclose(fp);
 }
 
@@ -37,7 +39,7 @@ void editorOpen(char *filename) {
   char *line = NULL;
   size_t linecap = 0;
   ssize_t linelen;
-  
+
   while ((linelen = getline(&line, &linecap, fp)) != -1) {
     while (linelen > 0 && (line[linelen - 1] == '\n' ||
                            line[linelen - 1] == '\r'))
@@ -54,7 +56,7 @@ void editorOpen(char *filename) {
   E.dirty = 0;
   free(line);
   fclose(fp);
-  
+
   // If no lines were read, create an empty first line
   if (E.numrows == 0) {
     // We need to call editorAllocateNewRow from editor.c

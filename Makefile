@@ -21,7 +21,8 @@ SRCS = src/main.c \
         src/features/autocomplete/Trie.c \
         src/features/syntax.c \
         tree-sitter/lib/src/lib.c \
-        tree-sitter-c/src/parser.c
+        tree-sitter-c/src/parser.c \
+        src/core/history.c
 
 BUILD_DIR = build
 OBJS = $(SRCS:%.c=$(BUILD_DIR)/%.o)
@@ -54,4 +55,3 @@ test: $(TEST_BINS)
 		echo "Running $$t"; \
 		$$t || exit 1; \
 	done
-

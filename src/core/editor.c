@@ -4,6 +4,7 @@
 #include "fileio.h"
 #include "autocomplete.h"
 #include "syntax.h"
+#include "history.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -413,6 +414,12 @@ void editorProcessKey(void){
                 } else if (E.cx == row->size && E.cy < E.numrows - 1){
                     E.cy++;
                     E.cx = 0;
+                    historyRecord((EditOperation){
+                        .kind = OP_JOIN_LINE,
+                        .row = E.cy - 1,
+                        .col = E.row[E.cy - 1].size,
+                        .ch = 0
+                    });
                     editorDeleteChar();
                     buffer_changed = 1;
                 }
@@ -433,6 +440,12 @@ void editorProcessKey(void){
         case CTRL_KEY('n'):
             editorMoveCursor(ARROW_DOWN);
             autocompleteCancelIfCursorMoved(prev_cx, prev_cy);
+            break;
+        case CTRL_KEY('z'):
+            historyUndo();
+            break;
+        case CTRL_KEY('y'):
+            historyRedo();
             break;
         case HOME_KEY:
             E.cx = 0;
@@ -477,10 +490,29 @@ void editorProcessKey(void){
             if (autocompleteIsActive()){
                 autocompleteHideSuggestions();
             }
+            historyRecord((EditOperation){ .kind = OP_SPLIT_LINE, .row = E.cy, .col = E.cx, .ch = 0 });
             editorInsertNewline();
             buffer_changed = 1;
             break;
         case BACKSPACE:
+
+            if (!(E.cy == 0 && E.cx == 0)) {
+                if (E.cx > 0) {
+                    historyRecord((EditOperation){
+                        .kind = OP_DELETE_CHAR,
+                        .row = E.cy,
+                        .col = E.cx - 1,
+                        .ch = E.row[E.cy].chars[E.cx - 1]
+                    });
+                } else {
+                    historyRecord((EditOperation){
+                        .kind = OP_JOIN_LINE,
+                        .row = E.cy - 1,
+                        .col = E.row[E.cy - 1].size,
+                        .ch = 0
+                    });
+                }
+            }
             editorDeleteChar();
             buffer_changed = 1;
             break;
@@ -517,6 +549,7 @@ void editorProcessKey(void){
                 break;  // ignore stray control characters
             }
 
+            historyRecord((EditOperation){ .kind = OP_INSERT_CHAR, .row = E.cy, .col = E.cx, .ch = (char)c });
             editorInsertChar(c);
             buffer_changed = 1;
 
@@ -728,5 +761,6 @@ void initEditor(void) {
     E.debug_tree = 0;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
   E.screenrows -= 1;
+  historyInit();
   autocompleteInit();
 }

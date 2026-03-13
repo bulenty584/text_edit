@@ -52,6 +52,27 @@ typedef struct {
   bool is_active;
 } AutoCompleteState;
 
+/*** Editor undo/redo ***/
+typedef enum {
+    OP_INSERT_CHAR,
+    OP_DELETE_CHAR,
+    OP_SPLIT_LINE, // newline
+    OP_JOIN_LINE // backspace at start of line
+} EditOpKind;
+
+typedef struct {
+    EditOpKind kind;
+    int row;
+    int col;
+    char ch;
+} EditOperation;
+
+typedef struct {
+    EditOperation *items;
+    int len;
+    int cap;
+} EditStack;
+
 struct editorConfig {
     int screenrows;
     int screencols;
@@ -80,6 +101,10 @@ struct editorConfig {
     int search_match_col;
     int search_match_len;
 
+    /*** undo/redo ***/
+    EditStack undo_stack;
+    EditStack redo_stack;
+    int replaying_history;
 };
 
 extern struct editorConfig E;
