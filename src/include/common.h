@@ -101,10 +101,15 @@ struct editorConfig {
     int search_match_col;
     int search_match_len;
 
-    /*** undo/redo ***/
+    // undo/redo
     EditStack undo_stack;
     EditStack redo_stack;
     int replaying_history;
+
+    // save_as_prompt
+    int save_as_active;
+    char save_as_buf[256];
+    int save_as_len;
 };
 
 extern struct editorConfig E;

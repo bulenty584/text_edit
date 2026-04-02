@@ -24,8 +24,6 @@ static int int_to_str(int v, char *out) {
 
 /*** editor functions ***/
 
-
-
 void editorSearchStart(void) {
     E.search_active = 1;
     E.search_len = 0;
@@ -70,6 +68,35 @@ void editorSearchUpdate(void) {
     E.search_match_row = -1;
     E.search_match_col = -1;
     E.search_match_len = 0;
+}
+
+void editorSaveAsStart(void) {
+    E.save_as_active = 1;
+    E.save_as_len = 0;
+    E.save_as_buf[0] = '\0';
+}
+
+void editorSaveAsCancel(void) {
+    E.save_as_active = 0;
+    E.save_as_len = 0;
+    E.save_as_buf[0] = '\0';
+}
+
+void editorSaveAsCommit(void) {
+    if (E.save_as_len <= 0) return;
+
+    E.save_as_buf[E.save_as_len] = '\0';
+    char* new_filename = strdup(E.save_as_buf);
+    if (!new_filename) return;
+
+    free(E.filename);
+    E.filename = new_filename;
+
+    E.save_as_active = 0;
+    E.save_as_len = 0;
+    E.save_as_buf[0] = '\0';
+
+    editorSave();
 }
 
 void editorGotoStart(void) {
@@ -367,9 +394,32 @@ void editorProcessKey(void){
         }
     }
 
+    if (E.save_as_active) {
+        switch(c) {
+            case BACKSPACE:
+                if (E.save_as_len > 0) {
+                    E.save_as_len--;
+                    E.save_as_buf[E.save_as_len] = '\0';
+                }
+                break;
+            case '\x1b':
+                editorSaveAsCancel();
+                break;
+            case NEWLINE_KEY:
+                editorSaveAsCommit();
+                break;
+            default:
+                if (E.save_as_len >= 255) break;
+                E.save_as_buf[E.save_as_len++] = c;
+                E.save_as_buf[E.save_as_len] = '\0';
+        }
+        return;
+    }
+
     switch (c) {
         case CTRL_KEY('s'):
-            editorSave();
+            if (E.filename) editorSave();
+            else editorSaveAsStart();
             break;
         case CTRL_KEY('l'):
             editorSearchStart();
@@ -382,7 +432,8 @@ void editorProcessKey(void){
             break;
         case CTRL_KEY('q'):
         case CTRL_KEY('c'):
-            editorSave();
+            if (!E.filename) {editorSaveAsStart(); return;}
+            else editorSave();
             editorFree();
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
@@ -705,6 +756,10 @@ void editorDrawStatusBar(struct abuf *ab) {
     } else {
         len = snprintf(status, sizeof(status), "L%d %.20s - %d lines %s", E.cy + 1,
                        E.filename, E.numrows, E.dirty ? "(modified)" : "");
+    }
+
+    if (E.save_as_active) {
+        len = snprintf(status, sizeof(status), "Save file as %s (ESC to cancel)", E.save_as_buf);
     }
     if (len > E.screencols) len = E.screencols;
     abAppend(ab, status, len);
