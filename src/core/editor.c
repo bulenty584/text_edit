@@ -754,8 +754,10 @@ void editorDrawStatusBar(struct abuf *ab) {
     if (E.search_active){
         len = snprintf(status, sizeof(status), "Search %s (ESC to cancel)", E.search_query);
     } else {
+        char* filename = E.filename;
+        if (!filename) filename = "";
         len = snprintf(status, sizeof(status), "L%d %.20s - %d lines %s", E.cy + 1,
-                       E.filename, E.numrows, E.dirty ? "(modified)" : "");
+                       filename, E.numrows, E.dirty ? "(modified)" : "");
     }
 
     if (E.save_as_active) {
